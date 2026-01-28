@@ -1232,3 +1232,33 @@ input[type="checkbox"] {
         grid-template-columns: 1fr;
     }
 }
+
+/* 실시간 업데이트 시각화 (Flash Effect) */
+@keyframes flash-highlight {
+    0% { background-color: rgba(79, 70, 229, 0.4); } /* 보라색 하이라이트 */
+    100% { background-color: transparent; }
+}
+
+.highlight-update {
+    animation: flash-highlight 2s ease-out;
+}
+
+/* 동기화 중임을 알리는 인디케이터 (선택사항) */
+.sync-status {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 8px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    color: white;
+    background: rgba(0,0,0,0.6);
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+    z-index: 9999;
+}
+.sync-status.active {
+    opacity: 1;
+}

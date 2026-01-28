@@ -53,11 +53,94 @@ const dataStore = {
     }
 };
 
-// DOM 로드 시 초기화
+// [수정] DOM 로드 시 초기화 부분
 document.addEventListener('DOMContentLoaded', function() {
     initializeApp();
-    loadDataFromFirebase();
+    
+    // 처음에 한번 전체 데이터를 가져오고, 그 뒤부터 실시간 모드로 전환
+    const path = `shifts/${currentShift}`;
+    
+    database.ref(path).once('value').then(snapshot => {
+        const val = snapshot.val();
+        
+        if (val) {
+            // 1. 관리자, 계약직 등 명단 데이터 로드
+            if (val.data) {
+                Object.assign(dataStore, val.data);
+            }
+            
+            // 2. 화면에 테이블 그리기
+            refreshAllTables();
+            
+            // 3. 기존 배치된 인원 불러오기
+            // (데이터가 있으면 배치도 불러옵니다)
+            loadAssignmentData(); 
+        }
+        
+        // 4. 이제부터 실시간 감지 시작!
+        setupRealtimeListeners();
+    });
 });
+
+// [추가] 실시간 데이터 동기화 리스너 (기존 loadDataFromFirebase 대체용)
+function setupRealtimeListeners() {
+    console.log("실시간 동기화 시작: " + currentShift);
+    const shiftRef = database.ref(`shifts/${currentShift}`);
+
+    // 1. DATA (관리자, TC, 계약직 목록 등) 변경 감지
+    shiftRef.child('data').on('child_changed', (snapshot) => {
+        const category = snapshot.key; // 예: managers, contract
+        const data = snapshot.val();
+        
+        // 내 로컬 데이터 업데이트
+        if (dataStore[category]) {
+            dataStore[category] = data;
+            
+            // 해당 테이블만 새로고침 (전체 새로고침보다 효율적)
+            if (category === 'managers') refreshDataTables(); // 편의상 전체 리프레시 호출
+            else if (category === 'teamCaptains') refreshDataTables();
+            else if (category === 'ps') refreshDataTables();
+            else if (category === 'contract') refreshDataTables();
+            else if (category === 'temp') refreshDataTables();
+        }
+    });
+
+    // 2. ASSIGNMENTS (배치표) 변경 감지 - 가장 중요!
+    shiftRef.child('assignments').on('child_changed', (snapshot) => {
+        const pageType = snapshot.key; // pack 또는 pick
+        const tables = snapshot.val(); // 해당 페이지의 모든 테이블 데이터
+        
+        if (!tables) return;
+
+        // 변경된 테이블들을 순회
+        Object.keys(tables).forEach(tableId => {
+            const tableData = tables[tableId]; // 배열 데이터
+            const tbody = document.getElementById(tableId);
+            if (!tbody || !tableData) return;
+
+            tableData.forEach(item => {
+                const rows = tbody.querySelectorAll('tr');
+                if (rows[item.index]) {
+                    const row = rows[item.index];
+                    const input = row.querySelector('.coop-code');
+                    
+                    // ★ 중요: 내가 지금 입력하고 있는 칸은 건드리지 않음 (충돌 방지)
+                    if (document.activeElement !== input && input.value !== item.coopCode) {
+                        // 값 업데이트
+                        input.value = item.coopCode;
+                        updateAssignmentRow(row, item.coopCode);
+                        
+                        // ✨ 반짝임 효과 (styles.css에 .highlight-update가 있어야 함)
+                        row.classList.remove('highlight-update');
+                        void row.offsetWidth; // 애니메이션 리셋 트릭
+                        row.classList.add('highlight-update');
+                    }
+                }
+            });
+        });
+        updateDashboard(); // 숫자 갱신
+    });
+}
 
 // 앱 초기화
 function initializeApp() {
@@ -327,7 +410,7 @@ function createTempRow() {
     return tr;
 }
 
-// 배치 행 생성 (PACK/PICK)
+// [수정 4-2단계] 배치 행 생성 함수 (이벤트 리스너 변경)
 function createAssignmentRow(tableId) {
     const tr = document.createElement('tr');
     const id = tableId + '_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -342,12 +425,22 @@ function createAssignmentRow(tableId) {
     `;
     
     const coopCodeInput = tr.querySelector('.coop-code');
+    
+    // 1. 입력 중에는 화면만 갱신 (서버 부하 방지)
     coopCodeInput.addEventListener('input', function() {
         updateAssignmentRow(tr, this.value);
     });
     
+    // 2. [핵심] 입력이 끝나면(엔터/포커스아웃) "그 줄만" 서버에 저장
+    // 기존에는 여기서 saveAssignmentData()를 호출해서 전체를 덮어썼습니다.
     coopCodeInput.addEventListener('change', function() {
-        saveAssignmentData();
+        // 현재 내가 몇 번째 줄인지 찾기 (0부터 시작)
+        const rowIndex = Array.from(tr.parentNode.children).indexOf(tr);
+        
+        // 방금 만든 '한 줄 저장' 함수 호출
+        saveSingleAssignment(tableId, rowIndex, this.value.trim());
+        
+        updateDashboard();
     });
     
     return tr;
@@ -406,7 +499,7 @@ function setupDataRowListeners(tr, type) {
     });
 }
 
-// 데이터 행 저장
+// [수정 3단계] 데이터 행 핀포인트 저장 함수 (전체 덮어쓰기 방지)
 function saveDataRow(tr, type) {
     const id = tr.getAttribute('data-id');
     const coopCode = tr.querySelector('.coop-code').value.trim();
@@ -414,23 +507,28 @@ function saveDataRow(tr, type) {
     if (!coopCode) return;
     
     let data = { coopCode };
-    
+    let category = ''; // Firebase 저장 경로
+
+    // 데이터 수집 (기존 로직과 동일)
     switch(type) {
         case 'manager':
             data.name = tr.querySelector('.name').value.trim();
             data.nickname = tr.querySelector('.nickname').value.trim();
             dataStore.managers[coopCode] = data;
+            category = 'managers';
             break;
         case 'tc':
             data.name = tr.querySelector('.name').value.trim();
             data.nickname = tr.querySelector('.nickname').value.trim();
             data.level = tr.querySelector('.level').value.trim();
             dataStore.teamCaptains[coopCode] = data;
+            category = 'teamCaptains';
             break;
         case 'ps':
             data.name = tr.querySelector('.name').value.trim();
             data.team = tr.querySelector('.team').value.trim().toUpperCase();
             dataStore.ps[coopCode] = data;
+            category = 'ps';
             break;
         case 'contract':
             data.name = tr.querySelector('.name').value.trim();
@@ -441,6 +539,7 @@ function saveDataRow(tr, type) {
             data.packHigh = tr.querySelector('.pack-high').checked;
             data.pickHigh = tr.querySelector('.pick-high').checked;
             dataStore.contract[coopCode] = data;
+            category = 'contract';
             break;
         case 'temp':
             data.name = tr.querySelector('.name').value.trim();
@@ -450,10 +549,24 @@ function saveDataRow(tr, type) {
             data.packHigh = tr.querySelector('.pack-high').checked;
             data.pickHigh = tr.querySelector('.pick-high').checked;
             dataStore.temp[coopCode] = data;
+            category = 'temp';
             break;
     }
     
-    saveDataToFirebase();
+    // [여기가 핵심] 전체 저장이 아니라, "이 사람 한 명"만 저장합니다.
+    if (category) {
+        const path = `shifts/${currentShift}/data/${category}/${coopCode}`;
+        
+        // update를 사용하여 안전하게 저장
+        const updates = {};
+        updates[path] = data;
+        
+        database.ref().update(updates)
+            .then(() => {
+                if(typeof showSyncStatus === 'function') showSyncStatus();
+            })
+            .catch(err => console.error("저장 실패", err));
+    }
 }
 
 // 배치 행 업데이트
@@ -1113,4 +1226,44 @@ function getNextNode(node, endNode) {
     }
     
     return null;
+}
+
+// [수정 4-1단계] 단일 배치 셀 저장 함수 (새로 추가)
+function saveSingleAssignment(tableId, index, coopCode) {
+    // 테이블 ID로 pack인지 pick인지 구분
+    let pageType = 'pack';
+    if (tableId.includes('pick')) pageType = 'pick';
+    
+    // 배열의 특정 인덱스(몇 번째 줄)만 콕 집어서 업데이트
+    const path = `shifts/${currentShift}/assignments/${pageType}/${tableId}/${index}`;
+    
+    database.ref(path).set({
+        index: index,
+        coopCode: coopCode
+    }).then(() => {
+        if(typeof showSyncStatus === 'function') showSyncStatus();
+    }).catch(err => console.error(err));
+}
+
+// [추가] 데이터 저장 성공 시 알림 표시
+function showSyncStatus() {
+    let statusEl = document.querySelector('.sync-status');
+    // 요소가 없으면 새로 생성
+    if (!statusEl) {
+        statusEl = document.createElement('div');
+        statusEl.className = 'sync-status';
+        statusEl.textContent = '클라우드 자동 저장됨 ☁️';
+        document.body.appendChild(statusEl);
+    }
+    
+    // 스타일이 없으면 JS로 임시 주입 (CSS파일 수정을 놓쳤을 경우 대비)
+    if (!statusEl.getAttribute('style')) {
+        statusEl.style.cssText = 'position:fixed; bottom:20px; right:20px; padding:8px 12px; background:rgba(0,0,0,0.7); color:white; border-radius:20px; z-index:9999; font-size:12px; pointer-events:none; opacity:0; transition:opacity 0.3s;';
+    }
+
+    // 표시 애니메이션
+    statusEl.style.opacity = '1';
+    setTimeout(() => {
+        statusEl.style.opacity = '0';
+    }, 2000);
 }
