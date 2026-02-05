@@ -3,711 +3,844 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GWJ2 OB 인원시트</title>
-    <link href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
+    <title>GWJ2 OB 인원시트 PDA Sheet</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <!-- html2canvas for image export -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 </head>
-<body>
-    <!-- 사이드바 메뉴 -->
-    <div class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <div class="sidebar-logo">
-                <i class='bx bx-network-chart'></i>
-            </div>
-            <h3 class="sidebar-title">메뉴</h3>
-        </div>
-        
-        <div class="sidebar-menu">
-            <div class="menu-item active" data-page="home">
-                <i class='bx bx-home'></i>
-                <span>홈 화면</span>
-            </div>
-            <div class="menu-item" data-page="data">
-                <i class='bx bx-data'></i>
-                <span>DATA (데이터)</span>
-            </div>
-            <div class="menu-item" data-page="flow">
-                <i class='bx bx-git-branch'></i>
-                <span>FLOW</span>
-            </div>
-            <div class="menu-item" data-page="pack">
-                <i class='bx bx-package'></i>
-                <span>PACK (포장)</span>
-            </div>
-            <div class="menu-item" data-page="pick">
-                <i class='bx bx-basket'></i>
-                <span>PICK (집품)</span>
-            </div>
-            <div class="menu-item" data-page="htp">
-                <i class='bx bx-bar-chart-alt-2'></i>
-                <span>HTP RAW DATA</span>
-            </div>
-            <div class="menu-item" data-page="share">
-                <i class='bx bx-share-alt'></i>
-                <span>공유</span>
-            </div>
-        </div>
-
-        <div class="sidebar-footer">
-            <div class="theme-toggle">
-                <div class="toggle-label">테마 모드</div>
-                <div class="toggle-switch" id="themeToggle">
-                    <div class="toggle-slider">
-                        <i class='bx bx-sun'></i>
-                        <i class='bx bx-moon'></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 메인 컨텐츠 -->
-    <div class="main-content">
-        <!-- 헤더 -->
-        <div class="header">
-            <div class="header-left">
-                <div class="page-title-container" id="pageTitleContainer">
-                    <div class="title-badge">
-                        <span class="title-icon">☀️</span>
-                        <span class="badge-text">DAY SHIFT</span>
-                    </div>
-                    <h1 class="page-title">
+<body class="light-mode">
+    <div id="app">
+        <header>
+            <button id="menuBtn" class="menu-btn">☰</button>
+            <div class="header-title-wrapper">
+                <div class="header-icon-badge" id="shiftIcon">☀️</div>
+                <div class="header-title-content">
+                    <h1 id="pageTitle" class="header-title">
                         <span class="title-main">GWJ2 OB</span>
-                        <span class="title-sub">주간조 인원시트</span>
-                        <span class="title-tag">#DAY PDA Sheet</span>
+                        <span class="title-shift" id="shiftText">주간조</span>
+                        <span class="title-sub">인원시트</span>
                     </h1>
-                    <div class="title-decoration">
-                        <div class="decoration-line"></div>
-                        <div class="decoration-dot"></div>
-                        <div class="decoration-dot"></div>
-                        <div class="decoration-dot"></div>
+                    <div class="header-subtitle">
+                        <span class="subtitle-badge">#DAY</span>
+                        <span class="subtitle-text">PDA Sheet</span>
                     </div>
                 </div>
             </div>
-            <div class="shift-toggle">
-                <button class="shift-btn active" data-shift="day">
-                    <span class="shift-icon">☀️</span>
-                    <span class="shift-text">주간조</span>
-                </button>
-                <button class="shift-btn" data-shift="swing">
-                    <span class="shift-icon">🌙</span>
-                    <span class="shift-text">야간조</span>
-                </button>
-            </div>
-        </div>
+        </header>
 
-        <!-- 페이지 컨텐츠 -->
-        <div class="page-content">
-            <!-- 홈 화면 -->
-            <div class="page home-page active" id="homePage">
-                <div class="dashboard">
-                    <div class="dashboard-card">
-                        <div class="card-icon pack-icon">
-                            <i class='bx bx-package'></i>
+        <nav id="sideMenu" class="side-menu">
+            <div class="menu-header">
+                <h2>메뉴</h2>
+                <button id="closeMenuBtn" class="close-btn">✕</button>
+            </div>
+            <ul class="menu-list">
+                <li><a href="#" data-page="dashboard">🏠 홈 화면</a></li>
+                <li><a href="#" data-page="data">📊 DATA (데이터)</a></li>
+                <li><a href="#" data-page="flow">🔄 FLOW</a></li>
+                <li><a href="#" data-page="pack">📦 PACK (포장)</a></li>
+                <li><a href="#" data-page="pick">🎯 PICK (집품)</a></li>
+                <li><a href="#" data-page="raw">📋 HTP RAW DATA</a></li>
+                <li><a href="#" data-page="share">🔗 공유</a></li>
+            </ul>
+            <div class="menu-footer">
+                <div class="shift-toggle">
+                    <label class="toggle-label">조 선택</label>
+                    <div class="shift-buttons">
+                        <button id="dayShift" class="shift-btn active">☀️ DAY</button>
+                        <button id="swingShift" class="shift-btn">🌙 SWING</button>
+                    </div>
+                </div>
+                <div class="theme-toggle">
+                    <label class="toggle-label">테마</label>
+                    <button id="themeToggle" class="theme-btn">
+                        <span class="theme-icon">☀️</span>
+                        <span class="theme-text">라이트 모드</span>
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <main id="mainContent">
+            <div id="dashboard" class="page active">
+                <div class="dashboard-hero">
+                    <div class="hero-inputs">
+                        <div class="hero-input-group">
+                            <label>📊 오늘의 SNOP</label>
+                            <input type="number" id="todaySnop" placeholder="0" min="0">
                         </div>
-                        <div class="card-content">
+                        <div class="hero-input-group">
+                            <label>⚡ 시간당 필요 처리량</label>
+                            <input type="number" id="hourlyTarget" placeholder="0" min="0">
+                        </div>
+                        <button id="saveSnopBtn" class="save-snop-btn">저장</button>
+                    </div>
+                    <div class="live-clock">
+                        <div class="clock-time" id="liveTime">00:00:00</div>
+                        <div class="clock-date" id="liveDate">2026년 2월 4일</div>
+                    </div>
+                </div>
+
+                <div class="dashboard-grid">
+                    <div class="stat-card pack-card" data-animation-delay="0">
+                        <div class="stat-icon">📦</div>
+                        <div class="stat-info">
                             <h3>PACK (포장)</h3>
-                            <div class="card-value" id="packCount">0</div>
-                            <p>명</p>
+                            <div class="stat-number" id="packCount">0</div>
+                            <div class="stat-label">명</div>
                         </div>
+                        <div class="stat-sparkle"></div>
                     </div>
-                    
-                    <div class="dashboard-card">
-                        <div class="card-icon pick-icon">
-                            <i class='bx bx-basket'></i>
-                        </div>
-                        <div class="card-content">
+                    <div class="stat-card pick-card" data-animation-delay="100">
+                        <div class="stat-icon">🎯</div>
+                        <div class="stat-info">
                             <h3>PICK (집품)</h3>
-                            <div class="card-value" id="pickCount">0</div>
-                            <p>명</p>
+                            <div class="stat-number" id="pickCount">0</div>
+                            <div class="stat-label">명</div>
                         </div>
+                        <div class="stat-sparkle"></div>
                     </div>
-                    
-                    <div class="dashboard-card">
-                        <div class="card-icon ws-icon">
-                            <i class='bx bx-droplet'></i>
-                        </div>
-                        <div class="card-content">
+                    <div class="stat-card ws-card" data-animation-delay="200">
+                        <div class="stat-icon">💧</div>
+                        <div class="stat-info">
                             <h3>WS (워터)</h3>
-                            <div class="card-value" id="wsCount">0</div>
-                            <p>명</p>
+                            <div class="stat-number" id="wsCount">0</div>
+                            <div class="stat-label">명</div>
                         </div>
+                        <div class="stat-sparkle"></div>
                     </div>
-                    
-                    <div class="dashboard-card">
-                        <div class="card-icon tc-icon">
-                            <i class='bx bx-shield'></i>
-                        </div>
-                        <div class="card-content">
+                    <div class="stat-card tc-card" data-animation-delay="300">
+                        <div class="stat-icon">👔</div>
+                        <div class="stat-info">
                             <h3>Team Captain</h3>
-                            <div class="card-value" id="tcCount">0</div>
-                            <p>명</p>
+                            <div class="stat-number" id="tcCount">0</div>
+                            <div class="stat-label">명</div>
+                        </div>
+                        <div class="stat-sparkle"></div>
+                    </div>
+                    <div class="stat-card manager-card" data-animation-delay="400">
+                        <div class="stat-icon">👨‍💼</div>
+                        <div class="stat-info">
+                            <h3>Manager</h3>
+                            <div class="stat-number" id="managerCount">0</div>
+                            <div class="stat-label">명</div>
+                        </div>
+                        <div class="stat-sparkle"></div>
+                    </div>
+                    <div class="stat-card total-card" data-animation-delay="500">
+                        <div class="stat-icon">👥</div>
+                        <div class="stat-info">
+                            <h3>전체 인원</h3>
+                            <div class="stat-number" id="totalCount">0</div>
+                            <div class="stat-label">명</div>
+                        </div>
+                        <div class="stat-sparkle"></div>
+                    </div>
+                </div>
+
+                <div class="dashboard-analytics">
+                    <div class="analytics-section skill-distribution">
+                        <div class="section-header-dashboard">
+                            <h3>🔧 숙련도별 분포</h3>
+                        </div>
+                        <div class="skill-stats">
+                            <div class="skill-stat-item autobag-stat">
+                                <div class="skill-stat-icon">🔵</div>
+                                <div class="skill-stat-content">
+                                    <div class="skill-stat-label">오토백 가능자</div>
+                                    <div class="skill-stat-number" id="autobagCount">0</div>
+                                </div>
+                            </div>
+                            <div class="skill-stat-item manual-stat">
+                                <div class="skill-stat-icon">🟠</div>
+                                <div class="skill-stat-content">
+                                    <div class="skill-stat-label">메뉴얼팩 가능자</div>
+                                    <div class="skill-stat-number" id="manualCount">0</div>
+                                </div>
+                            </div>
+                            <div class="skill-stat-item agv-stat">
+                                <div class="skill-stat-icon">🔴</div>
+                                <div class="skill-stat-content">
+                                    <div class="skill-stat-label">AGV 가능자</div>
+                                    <div class="skill-stat-number" id="agvCount">0</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    
-                    <div class="dashboard-card">
-                        <div class="card-icon manager-icon">
-                            <i class='bx bx-user-circle'></i>
+
+                    <div class="analytics-section highskill-distribution">
+                        <div class="section-header-dashboard">
+                            <h3>⭐ 하이스킬 보유자</h3>
                         </div>
-                        <div class="card-content">
-                            <h3>Manager</h3>
-                            <div class="card-value" id="managerCount">0</div>
-                            <p>명</p>
+                        <div class="highskill-stats">
+                            <div class="highskill-stat-item pack-highskill">
+                                <div class="highskill-icon">📦</div>
+                                <div class="highskill-content">
+                                    <div class="highskill-label">포장 하이스킬</div>
+                                    <div class="highskill-number" id="packHighskillCount">0</div>
+                                </div>
+                            </div>
+                            <div class="highskill-stat-item pick-highskill">
+                                <div class="highskill-icon">🎯</div>
+                                <div class="highskill-content">
+                                    <div class="highskill-label">집품 하이스킬</div>
+                                    <div class="highskill-number" id="pickHighskillCount">0</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="analytics-section worker-type-distribution">
+                        <div class="section-header-dashboard">
+                            <h3>👥 인원 유형 분포</h3>
+                        </div>
+                        <div class="worker-type-chart">
+                            <div class="worker-type-item contract-type">
+                                <div class="worker-type-bar">
+                                    <div class="worker-type-fill" id="contractBar" data-percentage="0"></div>
+                                </div>
+                                <div class="worker-type-info">
+                                    <span class="worker-type-label">계약직</span>
+                                    <span class="worker-type-value" id="contractCount">0명 (0%)</span>
+                                </div>
+                            </div>
+                            <div class="worker-type-item temp-type">
+                                <div class="worker-type-bar">
+                                    <div class="worker-type-fill" id="tempBar" data-percentage="0"></div>
+                                </div>
+                                <div class="worker-type-info">
+                                    <span class="worker-type-label">단기직</span>
+                                    <span class="worker-type-value" id="tempCount">0명 (0%)</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="home-summary">
-                    <h2>오늘의 인원 현황</h2>
-                    <div class="summary-grid">
-                        <div class="summary-item">
-                            <label>전체 인원</label>
-                            <span id="totalCount">0명</span>
+                <div class="zone-details-grid">
+                    <div class="zone-details-section pack-zones">
+                        <div class="section-header-dashboard">
+                            <h3>📦 PACK 구역별 현황</h3>
                         </div>
-                        <div class="summary-item">
-                            <label>계약직</label>
-                            <span id="contractCount">0명</span>
+                        <div class="zone-list" id="packZoneList"></div>
+                    </div>
+
+                    <div class="zone-details-section pick-zones">
+                        <div class="section-header-dashboard">
+                            <h3>🎯 PICK 구역별 현황</h3>
                         </div>
-                        <div class="summary-item">
-                            <label>단기직</label>
-                            <span id="tempCount">0명</span>
+                        <div class="zone-list" id="pickZoneList"></div>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <h3>📈 주간 SNOP 추이</h3>
+                        <div class="chart-legend">
+                            <span class="legend-item"><span class="legend-dot snop-dot"></span>SNOP</span>
+                            <span class="legend-item"><span class="legend-dot target-dot"></span>목표</span>
                         </div>
+                    </div>
+                    <canvas id="snopChart"></canvas>
+                </div>
+            </div>
+
+            <div id="data" class="page">
+                <div class="data-section">
+                    <div class="section-header">
+                        <h2>👨‍💼 Manager</h2>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>쿠코드</th>
+                                    <th>이름</th>
+                                    <th>닉네임</th>
+                                </tr>
+                            </thead>
+                            <tbody id="managerTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="data-section">
+                    <div class="section-header">
+                        <h2>👔 Team Captain</h2>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>쿠코드</th>
+                                    <th>이름</th>
+                                    <th>닉네임</th>
+                                    <th>레벨</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tcTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="data-section">
+                    <div class="section-header">
+                        <h2>👨‍🔧 PS</h2>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>쿠코드</th>
+                                    <th>이름</th>
+                                    <th>조</th>
+                                </tr>
+                            </thead>
+                            <tbody id="psTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="data-section">
+                    <div class="section-header">
+                        <h2>📝 계약직</h2>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>쿠코드</th>
+                                    <th>이름</th>
+                                    <th>조</th>
+                                    <th>숙련도</th>
+                                    <th>포장 하이스킬</th>
+                                    <th>집품 하이스킬</th>
+                                </tr>
+                            </thead>
+                            <tbody id="contractTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="data-section">
+                    <div class="section-header">
+                        <h2>⏰ 단기직</h2>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>쿠코드</th>
+                                    <th>이름</th>
+                                    <th>숙련도</th>
+                                    <th>포장 하이스킬</th>
+                                    <th>집품 하이스킬</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tempTable"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
 
-            <!-- DATA 페이지 -->
-            <div class="page data-page" id="dataPage">
+            <div id="flow" class="page">
                 <div class="data-section">
-                    <h2>Manager 정보</h2>
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>쿠코드</th>
-                                <th>이름</th>
-                                <th>닉네임</th>
-                                <th>작업</th>
-                            </tr>
-                        </thead>
-                        <tbody id="managerDataTable"></tbody>
-                    </table>
-                    <button class="add-btn" onclick="addDataRow('manager')">
-                        <i class='bx bx-plus'></i> Manager 추가
-                    </button>
+                    <div class="section-header">
+                        <h2>👨‍💼 Manager</h2>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>쿠코드</th>
+                                    <th>이름</th>
+                                    <th>닉네임</th>
+                                </tr>
+                            </thead>
+                            <tbody id="flowManagerTable"></tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <div class="data-section">
-                    <h2>Team Captain 정보</h2>
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>쿠코드</th>
-                                <th>이름</th>
-                                <th>닉네임</th>
-                                <th>레벨</th>
-                                <th>작업</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tcDataTable"></tbody>
-                    </table>
-                    <button class="add-btn" onclick="addDataRow('tc')">
-                        <i class='bx bx-plus'></i> Team Captain 추가
-                    </button>
+                    <div class="section-header">
+                        <h2>👔 Team Captain</h2>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>쿠코드</th>
+                                    <th>닉네임</th>
+                                    <th>이름</th>
+                                    <th>레벨</th>
+                                    <th>Role (비고)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="flowTcTable"></tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <div class="data-section">
-                    <h2>PS 정보</h2>
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>쿠코드</th>
-                                <th>이름</th>
-                                <th>조</th>
-                                <th>작업</th>
-                            </tr>
-                        </thead>
-                        <tbody id="psDataTable"></tbody>
-                    </table>
-                    <button class="add-btn" onclick="addDataRow('ps')">
-                        <i class='bx bx-plus'></i> PS 추가
-                    </button>
+                    <div class="section-header">
+                        <h2>👨‍🔧 PS</h2>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>쿠코드</th>
+                                    <th>이름</th>
+                                    <th>상태 (조)</th>
+                                    <th>Role (비고)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="flowPsTable"></tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <div class="data-section">
-                    <h2>계약직 정보</h2>
-                    <table class="data-table contract-table">
-                        <thead>
-                            <tr>
-                                <th>쿠코드</th>
-                                <th>이름</th>
-                                <th>조</th>
-                                <th>오토백</th>
-                                <th>메뉴얼팩</th>
-                                <th>AGV</th>
-                                <th>포장 하이스킬</th>
-                                <th>집품 하이스킬</th>
-                                <th>작업</th>
-                            </tr>
-                        </thead>
-                        <tbody id="contractDataTable"></tbody>
-                    </table>
-                    <button class="add-btn" onclick="addDataRow('contract')">
-                        <i class='bx bx-plus'></i> 계약직 추가
-                    </button>
-                </div>
-
-                <div class="data-section">
-                    <h2>단기직 정보</h2>
-                    <table class="data-table temp-table">
-                        <thead>
-                            <tr>
-                                <th>쿠코드</th>
-                                <th>이름</th>
-                                <th>오토백</th>
-                                <th>메뉴얼팩</th>
-                                <th>AGV</th>
-                                <th>포장 하이스킬</th>
-                                <th>집품 하이스킬</th>
-                                <th>작업</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tempDataTable"></tbody>
-                    </table>
-                    <button class="add-btn" onclick="addDataRow('temp')">
-                        <i class='bx bx-plus'></i> 단기직 추가
-                    </button>
+                    <div class="section-header">
+                        <h2>🚪 조퇴</h2>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>쿠코드</th>
+                                    <th>이름</th>
+                                    <th>상태</th>
+                                    <th>비고</th>
+                                </tr>
+                            </thead>
+                            <tbody id="earlyLeaveTable"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
-            <!-- FLOW 페이지 -->
-            <div class="page flow-page" id="flowPage">
-                <div class="flow-grid">
-                    <!-- Manager 섹션 -->
-                    <div class="flow-card">
-                        <div class="flow-card-header">
-                            <div class="flow-icon manager-icon">
-                                <i class='bx bx-user-circle'></i>
-                            </div>
-                            <h3>Manager</h3>
-                            <span class="flow-count" id="flowManagerCount">0</span>
-                        </div>
-                        <div class="flow-card-body">
-                            <table class="flow-table-compact">
-                                <thead>
-                                    <tr>
-                                        <th>쿠코드</th>
-                                        <th>이름</th>
-                                        <th>닉네임</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="flowManagerTable"></tbody>
-                            </table>
-                        </div>
+            <div id="pack" class="page">
+                <div class="page-header">
+                    <h2>📦 PACK (포장)</h2>
+                    <div class="page-controls">
+                        <input type="text" id="packSearch" class="search-input" placeholder="🔍 쿠코드/이름 검색...">
+                        <button id="resetPackBtn" class="reset-btn">🔄 전체 초기화</button>
                     </div>
-
-                    <!-- Team Captain 섹션 -->
-                    <div class="flow-card">
-                        <div class="flow-card-header">
-                            <div class="flow-icon tc-icon">
-                                <i class='bx bx-shield'></i>
-                            </div>
-                            <h3>Team Captain</h3>
-                            <span class="flow-count" id="flowTcCount">0</span>
+                </div>
+                <div class="pack-grid">
+                    <div class="pack-section" data-zone="autobag-1.2">
+                        <div class="zone-header">
+                            <h3>Autobag 1.2</h3>
+                            <span class="zone-counter">0명</span>
                         </div>
-                        <div class="flow-card-body">
-                            <table class="flow-table-compact">
-                                <thead>
-                                    <tr>
-                                        <th>쿠코드</th>
-                                        <th>닉네임</th>
-                                        <th>레벨</th>
-                                        <th>Role</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="flowTcTable"></tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- PS 섹션 -->
-                    <div class="flow-card">
-                        <div class="flow-card-header">
-                            <div class="flow-icon ps-icon">
-                                <i class='bx bx-group'></i>
-                            </div>
-                            <h3>PS</h3>
-                            <span class="flow-count" id="flowPsCount">0</span>
-                        </div>
-                        <div class="flow-card-body">
-                            <table class="flow-table-compact">
-                                <thead>
-                                    <tr>
-                                        <th>쿠코드</th>
-                                        <th>이름</th>
-                                        <th>조</th>
-                                        <th>Role</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="flowPsTable"></tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- 조퇴 섹션 -->
-                    <div class="flow-card">
-                        <div class="flow-card-header">
-                            <div class="flow-icon leave-icon">
-                                <i class='bx bx-exit'></i>
-                            </div>
-                            <h3>조퇴</h3>
-                            <span class="flow-count" id="flowLeaveCount">0</span>
-                        </div>
-                        <div class="flow-card-body">
-                            <table class="flow-table-compact">
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
                                 <thead>
                                     <tr>
                                         <th>쿠코드</th>
                                         <th>이름</th>
                                         <th>상태</th>
-                                        <th>비고</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
                                     </tr>
                                 </thead>
-                                <tbody id="flowLeaveTable"></tbody>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="pack-section" data-zone="autobag-2.5">
+                        <div class="zone-header">
+                            <h3>Autobag 2.5</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="pack-section" data-zone="autobag-4.0">
+                        <div class="zone-header">
+                            <h3>Autobag 4.0</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="pack-section" data-zone="autobag-rtpb">
+                        <div class="zone-header">
+                            <h3>Autobag RTPB</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="pack-section" data-zone="autobag-multi">
+                        <div class="zone-header">
+                            <h3>Autobag 멀티</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="pack-section" data-zone="manualpack">
+                        <div class="zone-header">
+                            <h3>ManualPack</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="pack-section" data-zone="manualpack-multi">
+                        <div class="zone-header">
+                            <h3>ManualPack Multi</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="pack-section" data-zone="ace">
+                        <div class="zone-header">
+                            <h3>ACE</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="pack-section" data-zone="ws">
+                        <div class="zone-header">
+                            <h3>WS (워터)</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
                             </table>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- PACK 페이지 -->
-            <div class="page pack-page" id="packPage">
+            <div id="pick" class="page">
                 <div class="page-header">
-                    <h2>PACK (포장) 배치</h2>
-                    <button class="reset-btn" onclick="resetPage('pack')">
-                        <i class='bx bx-reset'></i> 전체 초기화
-                    </button>
-                </div>
-
-                <div class="pack-grid">
-                    <div class="pack-section">
-                        <h3>Autobag 1.2</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="autobag12Table"></tbody>
-                        </table>
-                    </div>
-
-                    <div class="pack-section">
-                        <h3>Autobag 2.5</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="autobag25Table"></tbody>
-                        </table>
-                    </div>
-
-                    <div class="pack-section">
-                        <h3>Autobag 4.0</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="autobag40Table"></tbody>
-                        </table>
-                    </div>
-
-                    <div class="pack-section">
-                        <h3>Autobag RTPB</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="autobagRtpbTable"></tbody>
-                        </table>
-                    </div>
-
-                    <div class="pack-section">
-                        <h3>Autobag 멀티</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="autobagMultiTable"></tbody>
-                        </table>
-                    </div>
-
-                    <div class="pack-section">
-                        <h3>ManualPack</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="manualPackTable"></tbody>
-                        </table>
-                    </div>
-
-                    <div class="pack-section">
-                        <h3>ManualPack Multi</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="manualPackMultiTable"></tbody>
-                        </table>
-                    </div>
-
-                    <div class="pack-section">
-                        <h3>ACE</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="aceTable"></tbody>
-                        </table>
-                    </div>
-
-                    <div class="pack-section">
-                        <h3>WS (워터)</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="packWsTable"></tbody>
-                        </table>
+                    <h2>🎯 PICK (집품)</h2>
+                    <div class="page-controls">
+                        <input type="text" id="pickSearch" class="search-input" placeholder="🔍 쿠코드/이름 검색...">
+                        <button id="resetPickBtn" class="reset-btn">🔄 전체 초기화</button>
                     </div>
                 </div>
-            </div>
-
-            <!-- PICK 페이지 -->
-            <div class="page pick-page" id="pickPage">
-                <div class="page-header">
-                    <h2>PICK (집품) 배치</h2>
-                    <button class="reset-btn" onclick="resetPage('pick')">
-                        <i class='bx bx-reset'></i> 전체 초기화
-                    </button>
-                </div>
-
                 <div class="pick-grid">
-                    <div class="pick-section">
-                        <h3>6.1F</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="pick61fTable"></tbody>
-                        </table>
+                    <div class="pick-section" data-zone="6.1f">
+                        <div class="zone-header">
+                            <h3>6.1F</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
-
-                    <div class="pick-section">
-                        <h3>6.3F</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="pick63fTable"></tbody>
-                        </table>
+                    <div class="pick-section" data-zone="6.3f">
+                        <div class="zone-header">
+                            <h3>6.3F</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
-
-                    <div class="pick-section">
-                        <h3>7.1F</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="pick71fTable"></tbody>
-                        </table>
+                    <div class="pick-section" data-zone="7.1f">
+                        <div class="zone-header">
+                            <h3>7.1F</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
-
-                    <div class="pick-section">
-                        <h3>7.2F</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="pick72fTable"></tbody>
-                        </table>
+                    <div class="pick-section" data-zone="7.2f">
+                        <div class="zone-header">
+                            <h3>7.2F</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
-
-                    <div class="pick-section">
-                        <h3>7.3F</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="pick73fTable"></tbody>
-                        </table>
+                    <div class="pick-section" data-zone="7.3f">
+                        <div class="zone-header">
+                            <h3>7.3F</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
-
-                    <div class="pick-section">
-                        <h3>8F</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="pick8fTable"></tbody>
-                        </table>
+                    <div class="pick-section" data-zone="8f">
+                        <div class="zone-header">
+                            <h3>8F</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
-
-                    <div class="pick-section">
-                        <h3>AGV</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="pickAgvTable"></tbody>
-                        </table>
+                    <div class="pick-section" data-zone="agv">
+                        <div class="zone-header">
+                            <h3>AGV</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
-
-                    <div class="pick-section">
-                        <h3>WS (워터)</h3>
-                        <table class="assignment-table">
-                            <thead>
-                                <tr>
-                                    <th>쿠코드</th>
-                                    <th>이름</th>
-                                    <th>상태</th>
-                                    <th>숙련도</th>
-                                    <th>HTP</th>
-                                </tr>
-                            </thead>
-                            <tbody id="pickWsTable"></tbody>
-                        </table>
+                    <div class="pick-section" data-zone="ws">
+                        <div class="zone-header">
+                            <h3>WS (워터)</h3>
+                            <span class="zone-counter">0명</span>
+                        </div>
+                        <div class="work-table-wrapper">
+                            <table class="work-table">
+                                <thead>
+                                    <tr>
+                                        <th>쿠코드</th>
+                                        <th>이름</th>
+                                        <th>상태</th>
+                                        <th>숙련도</th>
+                                        <th>HTP</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- HTP 페이지 -->
-            <div class="page htp-page" id="htpPage">
-                <h2>HTP RAW DATA</h2>
-                <p>HTP 데이터는 추후 구현 예정입니다.</p>
+            <div id="raw" class="page">
+                <div class="page-header">
+                    <h2>📋 HTP RAW DATA</h2>
+                </div>
+                <div class="coming-soon">
+                    <p>🚧 준비 중입니다</p>
+                </div>
             </div>
 
-            <!-- 공유 페이지 -->
-            <div class="page share-page" id="sharePage">
-                <h2>공유</h2>
-                <p>공유 기능은 추후 구현 예정입니다.</p>
+            <div id="share" class="page">
+                <div class="page-header">
+                    <h2>📋 계약직 배치 안내</h2>
+                    <div class="page-controls">
+                        <button id="copyImageBtn" class="copy-image-btn">📷 이미지로 복사</button>
+                    </div>
+                </div>
+                <div class="share-section">
+                    <div class="contract-board" id="contractBoardCapture">
+                        <div class="contract-board-header">
+                            <span class="board-title">📋 계약직 배치 현황</span>
+                            <span class="board-date" id="boardDate"></span>
+                        </div>
+                        <div id="contractBoardContent" class="contract-board-grid">
+                            <!-- 동적으로 생성됨 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <div id="modal" class="modal">
+            <div class="modal-content">
+                <h3>전체 초기화</h3>
+                <p>모든 입력된 쿠코드를 삭제하시겠습니까?</p>
+                <input type="password" id="resetPassword" placeholder="비밀번호 입력 (1234)" maxlength="4">
+                <div class="modal-actions">
+                    <button id="confirmReset" class="btn-primary">확인</button>
+                    <button id="cancelReset" class="btn-secondary">취소</button>
+                </div>
             </div>
         </div>
-    </div>
 
-    <!-- 모달 -->
-    <div class="modal" id="resetModal">
-        <div class="modal-content">
-            <h3>전체 초기화</h3>
-            <p>모든 입력된 데이터를 삭제하시겠습니까?</p>
-            <div class="password-input">
-                <input type="password" id="resetPassword" placeholder="비밀번호 입력 (1234)">
-            </div>
-            <div class="modal-buttons">
-                <button class="btn-cancel" onclick="closeResetModal()">취소</button>
-                <button class="btn-confirm" onclick="confirmReset()">확인</button>
-            </div>
+        <div id="contextMenu" class="context-menu">
+            <div class="context-menu-item" data-action="move">다른 구역으로 이동</div>
+            <div class="context-menu-item" data-action="delete">삭제</div>
         </div>
+
+        <div id="autocomplete" class="autocomplete-dropdown"></div>
     </div>
 
-    <!-- Firebase -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-    
-    <script src="script.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
