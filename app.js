@@ -99,19 +99,32 @@ function setupMenuToggle() {
     const menuBtn = document.getElementById('menuBtn');
     const closeMenuBtn = document.getElementById('closeMenuBtn');
     const sideMenu = document.getElementById('sideMenu');
+    const menuOverlay = document.getElementById('menuOverlay');
 
     menuBtn.addEventListener('click', () => {
         sideMenu.classList.add('active');
+        if (menuOverlay) menuOverlay.classList.add('active');
     });
 
-    closeMenuBtn.addEventListener('click', () => {
+    const closeMenu = () => {
         sideMenu.classList.remove('active');
-    });
+        if (menuOverlay) menuOverlay.classList.remove('active');
+    };
 
-    document.addEventListener('click', (e) => {
-        if (!sideMenu.contains(e.target) && !menuBtn.contains(e.target)) {
-            sideMenu.classList.remove('active');
-        }
+    closeMenuBtn.addEventListener('click', closeMenu);
+    if (menuOverlay) menuOverlay.addEventListener('click', closeMenu);
+}
+
+// 하단 네비게이션
+function setupBottomNav() {
+    const bottomNav = document.getElementById('bottomNav');
+    if (!bottomNav) return;
+
+    bottomNav.addEventListener('click', (e) => {
+        const btn = e.target.closest('.bottom-nav-item');
+        if (!btn) return;
+        const pageId = btn.dataset.page;
+        if (pageId) navigateToPage(pageId);
     });
 }
 
@@ -119,19 +132,30 @@ function setupMenuToggle() {
 function setupShiftToggle() {
     const dayShift = document.getElementById('dayShift');
     const swingShift = document.getElementById('swingShift');
-    const shiftIcon = document.getElementById('shiftIcon');
-    const shiftText = document.getElementById('shiftText');
-    const subtitleBadge = document.querySelector('.subtitle-badge');
+
+    function updateShiftUI(shift) {
+        const shiftEmoji = document.querySelector('.shift-emoji');
+        const shiftText = document.getElementById('shiftText');
+        const shiftBadge = document.getElementById('shiftBadge');
+
+        if (shift === 'DAY') {
+            if (shiftEmoji) shiftEmoji.textContent = '\u2600\uFE0F';
+            if (shiftText) shiftText.textContent = 'DAY';
+            if (shiftBadge) shiftBadge.textContent = '#DAY';
+            dayShift.classList.add('active');
+            swingShift.classList.remove('active');
+        } else {
+            if (shiftEmoji) shiftEmoji.textContent = '\uD83C\uDF19';
+            if (shiftText) shiftText.textContent = 'SWING';
+            if (shiftBadge) shiftBadge.textContent = '#SWING';
+            swingShift.classList.add('active');
+            dayShift.classList.remove('active');
+        }
+    }
 
     dayShift.addEventListener('click', () => {
         state.currentShift = 'DAY';
-        dayShift.classList.add('active');
-        swingShift.classList.remove('active');
-        
-        shiftIcon.textContent = '☀️';
-        shiftText.textContent = '주간조';
-        subtitleBadge.textContent = '#DAY';
-        
+        updateShiftUI('DAY');
         loadFromLocalStorage();
         renderAllTables();
         updateDashboard();
@@ -139,13 +163,7 @@ function setupShiftToggle() {
 
     swingShift.addEventListener('click', () => {
         state.currentShift = 'SWING';
-        swingShift.classList.add('active');
-        dayShift.classList.remove('active');
-        
-        shiftIcon.textContent = '🌙';
-        shiftText.textContent = '야간조';
-        subtitleBadge.textContent = '#SWING';
-        
+        updateShiftUI('SWING');
         loadFromLocalStorage();
         renderAllTables();
         updateDashboard();
@@ -159,26 +177,31 @@ function setupThemeToggle() {
     const themeText = themeToggle.querySelector('.theme-text');
     const body = document.body;
 
-    const savedTheme = localStorage.getItem('theme') || 'light';
+    const savedTheme = localStorage.getItem('theme') || 'dark';
     if (savedTheme === 'dark') {
         body.classList.add('dark-mode');
-        themeIcon.textContent = '☀️';
-        themeText.textContent = '라이트 모드';
+        body.classList.remove('light-mode');
+        themeIcon.textContent = '\u2600\uFE0F';
+        themeText.textContent = 'Light Mode';
     } else {
-        themeIcon.textContent = '🌙';
-        themeText.textContent = '다크 모드';
+        body.classList.remove('dark-mode');
+        body.classList.add('light-mode');
+        themeIcon.textContent = '\uD83C\uDF19';
+        themeText.textContent = 'Dark Mode';
     }
 
     themeToggle.addEventListener('click', () => {
         if (body.classList.contains('dark-mode')) {
             body.classList.remove('dark-mode');
-            themeIcon.textContent = '🌙';
-            themeText.textContent = '다크 모드';
+            body.classList.add('light-mode');
+            themeIcon.textContent = '\uD83C\uDF19';
+            themeText.textContent = 'Dark Mode';
             localStorage.setItem('theme', 'light');
         } else {
+            body.classList.remove('light-mode');
             body.classList.add('dark-mode');
-            themeIcon.textContent = '☀️';
-            themeText.textContent = '라이트 모드';
+            themeIcon.textContent = '\u2600\uFE0F';
+            themeText.textContent = 'Light Mode';
             localStorage.setItem('theme', 'dark');
         }
     });
@@ -1782,7 +1805,9 @@ function navigateToPage(pageId) {
     const menuLinks = document.querySelectorAll('.menu-list a');
     const pages = document.querySelectorAll('.page');
     const sideMenu = document.getElementById('sideMenu');
-    
+    const menuOverlay = document.getElementById('menuOverlay');
+    const bottomNavItems = document.querySelectorAll('.bottom-nav-item');
+
     menuLinks.forEach(link => {
         if (link.dataset.page === pageId) {
             link.classList.add('active');
@@ -1790,7 +1815,15 @@ function navigateToPage(pageId) {
             link.classList.remove('active');
         }
     });
-    
+
+    bottomNavItems.forEach(btn => {
+        if (btn.dataset.page === pageId) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
     pages.forEach(page => {
         if (page.id === pageId) {
             page.classList.add('active');
@@ -1798,9 +1831,13 @@ function navigateToPage(pageId) {
             page.classList.remove('active');
         }
     });
-    
+
     state.currentPage = pageId;
     sideMenu.classList.remove('active');
+    if (menuOverlay) menuOverlay.classList.remove('active');
+
+    // Scroll to top
+    window.scrollTo(0, 0);
 }
 
 // 자동완성 설정
