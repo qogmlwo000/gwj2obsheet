@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GWJ2 OB Staff Manager</title>
+    <title>GWJ2 OB 인원시트</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@
 </head>
 <body class="dark-mode">
     <div id="app">
-        <!-- Top Header Bar -->
+        <!-- 상단 헤더 -->
         <header>
             <div class="header-left">
                 <button id="menuBtn" class="menu-btn">
@@ -33,7 +33,7 @@
                         </h1>
                         <div class="brand-subtitle">
                             <span class="subtitle-badge" id="shiftBadge">#DAY</span>
-                            <span class="subtitle-text">Staff Manager</span>
+                            <span class="subtitle-text">인원관리</span>
                         </div>
                     </div>
                 </div>
@@ -41,7 +41,7 @@
             <div class="header-right">
                 <div class="header-sync-status" id="headerSyncStatus">
                     <div class="sync-dot" id="headerSyncDot"></div>
-                    <span id="headerSyncText">Offline</span>
+                    <span id="headerSyncText">오프라인</span>
                 </div>
                 <div class="live-clock-mini">
                     <span class="clock-time-mini" id="miniClockTime">00:00</span>
@@ -49,23 +49,23 @@
             </div>
         </header>
 
-        <!-- Presence Bar -->
+        <!-- 접속자 표시줄 -->
         <div class="presence-bar" id="presenceBar">
             <div class="presence-label">
                 <span class="material-icons-round">groups</span>
-                <span>Online</span>
+                <span>접속 중</span>
             </div>
             <div class="presence-users" id="presenceUsers">
-                <!-- dynamically filled -->
+                <!-- 동적 생성 -->
             </div>
         </div>
 
-        <!-- Side Menu -->
+        <!-- 사이드 메뉴 -->
         <nav id="sideMenu" class="side-menu">
             <div class="menu-header">
                 <div class="menu-brand">
                     <span class="menu-brand-icon">&#x1F4CB;</span>
-                    <span class="menu-brand-text">Staff Manager</span>
+                    <span class="menu-brand-text">인원관리</span>
                 </div>
                 <button id="closeMenuBtn" class="close-btn">
                     <span class="material-icons-round">close</span>
@@ -74,57 +74,57 @@
             <ul class="menu-list">
                 <li><a href="#" data-page="dashboard" class="active">
                     <span class="material-icons-round">dashboard</span>
-                    <span>Dashboard</span>
+                    <span>대시보드</span>
                 </a></li>
                 <li><a href="#" data-page="data">
-                    <span class="material-icons-round">database</span>
-                    <span>DATA</span>
+                    <span class="material-icons-round">storage</span>
+                    <span>인원 데이터</span>
                 </a></li>
                 <li><a href="#" data-page="flow">
                     <span class="material-icons-round">swap_horiz</span>
-                    <span>FLOW</span>
+                    <span>현장 배치</span>
                 </a></li>
                 <li><a href="#" data-page="pack">
                     <span class="material-icons-round">inventory_2</span>
-                    <span>PACK</span>
+                    <span>PACK 배치</span>
                 </a></li>
                 <li><a href="#" data-page="pick">
                     <span class="material-icons-round">pin_drop</span>
-                    <span>PICK</span>
+                    <span>PICK 배치</span>
                 </a></li>
                 <li><a href="#" data-page="raw">
                     <span class="material-icons-round">table_chart</span>
-                    <span>HTP RAW</span>
+                    <span>HTP 원본</span>
                 </a></li>
                 <li><a href="#" data-page="share">
                     <span class="material-icons-round">share</span>
-                    <span>Share</span>
+                    <span>배치 공유</span>
                 </a></li>
             </ul>
             <div class="menu-footer">
                 <div class="shift-toggle">
-                    <label class="toggle-label">Shift</label>
+                    <label class="toggle-label">근무조</label>
                     <div class="shift-buttons">
-                        <button id="dayShift" class="shift-btn active">&#x2600;&#xFE0F; DAY</button>
-                        <button id="swingShift" class="shift-btn">&#x1F319; SWING</button>
+                        <button id="dayShift" class="shift-btn active">&#x2600;&#xFE0F; 주간</button>
+                        <button id="swingShift" class="shift-btn">&#x1F319; 야간</button>
                     </div>
                 </div>
                 <div class="theme-toggle">
-                    <label class="toggle-label">Theme</label>
+                    <label class="toggle-label">테마</label>
                     <button id="themeToggle" class="theme-btn">
                         <span class="theme-icon">&#x2600;&#xFE0F;</span>
-                        <span class="theme-text">Light Mode</span>
+                        <span class="theme-text">라이트 모드</span>
                     </button>
                 </div>
             </div>
         </nav>
         <div id="menuOverlay" class="menu-overlay"></div>
 
-        <!-- Main Content -->
+        <!-- 메인 콘텐츠 -->
         <main id="mainContent">
-            <!-- ========== DASHBOARD ========== -->
+            <!-- ========== 대시보드 ========== -->
             <div id="dashboard" class="page active">
-                <!-- Hero Section -->
+                <!-- 히어로 섹션 -->
                 <div class="dashboard-hero">
                     <div class="hero-content">
                         <div class="hero-inputs">
@@ -133,7 +133,7 @@
                                 <input type="number" id="todaySnop" placeholder="0" min="0">
                             </div>
                             <div class="hero-input-group">
-                                <label>HTP/h</label>
+                                <label>시간당</label>
                                 <input type="number" id="hourlyTarget" placeholder="0" min="0">
                             </div>
                             <button id="saveSnopBtn" class="save-snop-btn">
@@ -147,7 +147,7 @@
                     </div>
                 </div>
 
-                <!-- Quick Stats -->
+                <!-- 요약 카드 -->
                 <div class="dashboard-grid">
                     <div class="stat-card pack-card" data-animation-delay="0">
                         <div class="stat-icon-wrapper pack-icon-bg">
@@ -194,7 +194,7 @@
                             <span class="material-icons-round">supervisor_account</span>
                         </div>
                         <div class="stat-info">
-                            <div class="stat-label">MGR</div>
+                            <div class="stat-label">매니저</div>
                             <div class="stat-number" id="managerCount">0</div>
                         </div>
                         <div class="stat-sparkle"></div>
@@ -204,31 +204,31 @@
                             <span class="material-icons-round">groups</span>
                         </div>
                         <div class="stat-info">
-                            <div class="stat-label">TOTAL</div>
+                            <div class="stat-label">전체</div>
                             <div class="stat-number" id="totalCount">0</div>
                         </div>
                         <div class="stat-sparkle"></div>
                     </div>
                 </div>
 
-                <!-- Analytics Row -->
+                <!-- 분석 영역 -->
                 <div class="dashboard-analytics">
                     <div class="analytics-section skill-distribution">
                         <div class="section-header-dashboard">
-                            <h3><span class="material-icons-round">build</span> Skills</h3>
+                            <h3><span class="material-icons-round">build</span> 숙련도</h3>
                         </div>
                         <div class="skill-stats">
                             <div class="skill-stat-item autobag-stat">
                                 <div class="skill-stat-icon autobag-icon">A</div>
                                 <div class="skill-stat-content">
-                                    <div class="skill-stat-label">Autobag</div>
+                                    <div class="skill-stat-label">오토백</div>
                                     <div class="skill-stat-number" id="autobagCount">0</div>
                                 </div>
                             </div>
                             <div class="skill-stat-item manual-stat">
                                 <div class="skill-stat-icon manual-icon">M</div>
                                 <div class="skill-stat-content">
-                                    <div class="skill-stat-label">Manual</div>
+                                    <div class="skill-stat-label">메뉴얼</div>
                                     <div class="skill-stat-number" id="manualCount">0</div>
                                 </div>
                             </div>
@@ -244,24 +244,33 @@
 
                     <div class="analytics-section highskill-distribution">
                         <div class="section-header-dashboard">
-                            <h3><span class="material-icons-round">star</span> High-Skill</h3>
+                            <h3><span class="material-icons-round">star</span> 하이스킬</h3>
                         </div>
                         <div class="highskill-stats">
-                            <div class="highskill-stat-item pack-highskill">
-                                <div class="highskill-icon">
-                                    <span class="material-icons-round">local_fire_department</span>
+                            <div class="highskill-stat-item hs-manual">
+                                <div class="highskill-icon hs-icon-manual">
+                                    <span class="material-icons-round">back_hand</span>
                                 </div>
                                 <div class="highskill-content">
-                                    <div class="highskill-label">PACK HS</div>
-                                    <div class="highskill-number" id="packHighskillCount">0</div>
+                                    <div class="highskill-label">메뉴얼 HS</div>
+                                    <div class="highskill-number" id="manualHsCount">0</div>
                                 </div>
                             </div>
-                            <div class="highskill-stat-item pick-highskill">
-                                <div class="highskill-icon">
+                            <div class="highskill-stat-item hs-autobag">
+                                <div class="highskill-icon hs-icon-autobag">
+                                    <span class="material-icons-round">precision_manufacturing</span>
+                                </div>
+                                <div class="highskill-content">
+                                    <div class="highskill-label">오토백 HS</div>
+                                    <div class="highskill-number" id="autobagHsCount">0</div>
+                                </div>
+                            </div>
+                            <div class="highskill-stat-item hs-pick">
+                                <div class="highskill-icon hs-icon-pick">
                                     <span class="material-icons-round">bolt</span>
                                 </div>
                                 <div class="highskill-content">
-                                    <div class="highskill-label">PICK HS</div>
+                                    <div class="highskill-label">집품 HS</div>
                                     <div class="highskill-number" id="pickHighskillCount">0</div>
                                 </div>
                             </div>
@@ -270,12 +279,12 @@
 
                     <div class="analytics-section worker-type-distribution">
                         <div class="section-header-dashboard">
-                            <h3><span class="material-icons-round">people</span> Types</h3>
+                            <h3><span class="material-icons-round">people</span> 인원 유형</h3>
                         </div>
                         <div class="worker-type-chart">
                             <div class="worker-type-item contract-type">
                                 <div class="worker-type-info">
-                                    <span class="worker-type-label">Contract</span>
+                                    <span class="worker-type-label">계약직</span>
                                     <span class="worker-type-value" id="contractCount">0 (0%)</span>
                                 </div>
                                 <div class="worker-type-bar">
@@ -284,7 +293,7 @@
                             </div>
                             <div class="worker-type-item temp-type">
                                 <div class="worker-type-info">
-                                    <span class="worker-type-label">Temp</span>
+                                    <span class="worker-type-label">단기직</span>
                                     <span class="worker-type-value" id="tempCount">0 (0%)</span>
                                 </div>
                                 <div class="worker-type-bar">
@@ -295,114 +304,120 @@
                     </div>
                 </div>
 
-                <!-- Zone Details -->
+                <!-- 구역별 현황 -->
                 <div class="zone-details-grid">
                     <div class="zone-details-section pack-zones">
                         <div class="section-header-dashboard">
-                            <h3><span class="material-icons-round">inventory_2</span> PACK Zones</h3>
+                            <h3><span class="material-icons-round">inventory_2</span> PACK 구역</h3>
                         </div>
                         <div class="zone-list" id="packZoneList"></div>
                     </div>
                     <div class="zone-details-section pick-zones">
                         <div class="section-header-dashboard">
-                            <h3><span class="material-icons-round">pin_drop</span> PICK Zones</h3>
+                            <h3><span class="material-icons-round">pin_drop</span> PICK 구역</h3>
                         </div>
                         <div class="zone-list" id="pickZoneList"></div>
                     </div>
                 </div>
 
-                <!-- SNOP Chart -->
+                <!-- SNOP 차트 -->
                 <div class="chart-container">
                     <div class="chart-header">
-                        <h3>SNOP Trend</h3>
+                        <h3>SNOP 추이</h3>
                         <div class="chart-legend">
                             <span class="legend-item"><span class="legend-dot snop-dot"></span>SNOP</span>
-                            <span class="legend-item"><span class="legend-dot target-dot"></span>Target</span>
+                            <span class="legend-item"><span class="legend-dot target-dot"></span>목표</span>
                         </div>
                     </div>
                     <canvas id="snopChart"></canvas>
                 </div>
             </div>
 
-            <!-- ========== DATA ========== -->
+            <!-- ========== 인원 데이터 ========== -->
             <div id="data" class="page">
-                <div class="data-section">
-                    <div class="section-header">
-                        <h2><span class="material-icons-round">supervisor_account</span> Manager</h2>
+                <!-- 상단: 매니저 | 팀캡틴 | PS 나란히 -->
+                <div class="data-grid-top">
+                    <div class="data-section">
+                        <div class="section-header">
+                            <h2><span class="material-icons-round">supervisor_account</span> 매니저</h2>
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table data-table-compact">
+                                <thead><tr><th>쿠코드</th><th>이름</th><th>닉네임</th></tr></thead>
+                                <tbody id="managerTable"></tbody>
+                            </table>
+                        </div>
                     </div>
-                    <div class="table-container">
-                        <table class="data-table">
-                            <thead><tr><th>Code</th><th>Name</th><th>Nickname</th></tr></thead>
-                            <tbody id="managerTable"></tbody>
-                        </table>
+                    <div class="data-section">
+                        <div class="section-header">
+                            <h2><span class="material-icons-round">military_tech</span> 팀 캡틴</h2>
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table data-table-compact">
+                                <thead><tr><th>쿠코드</th><th>이름</th><th>닉네임</th><th>레벨</th></tr></thead>
+                                <tbody id="tcTable"></tbody>
+                            </table>
+                        </div>
                     </div>
-                </div>
-                <div class="data-section">
-                    <div class="section-header">
-                        <h2><span class="material-icons-round">military_tech</span> Team Captain</h2>
-                    </div>
-                    <div class="table-container">
-                        <table class="data-table">
-                            <thead><tr><th>Code</th><th>Name</th><th>Nickname</th><th>Level</th></tr></thead>
-                            <tbody id="tcTable"></tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="data-section">
-                    <div class="section-header">
-                        <h2><span class="material-icons-round">engineering</span> PS</h2>
-                    </div>
-                    <div class="table-container">
-                        <table class="data-table">
-                            <thead><tr><th>Code</th><th>Name</th><th>Team</th></tr></thead>
-                            <tbody id="psTable"></tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="data-section">
-                    <div class="section-header">
-                        <h2><span class="material-icons-round">badge</span> Contract</h2>
-                    </div>
-                    <div class="table-container">
-                        <table class="data-table">
-                            <thead><tr><th>Code</th><th>Name</th><th>Team</th><th>Skills</th><th>PACK HS</th><th>PICK HS</th></tr></thead>
-                            <tbody id="contractTable"></tbody>
-                        </table>
+                    <div class="data-section">
+                        <div class="section-header">
+                            <h2><span class="material-icons-round">engineering</span> PS</h2>
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table data-table-compact">
+                                <thead><tr><th>쿠코드</th><th>이름</th><th>소속</th></tr></thead>
+                                <tbody id="psTable"></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
-                <div class="data-section">
-                    <div class="section-header">
-                        <h2><span class="material-icons-round">schedule</span> Temp</h2>
+                <!-- 하단: 계약직 | 단기직 나란히 -->
+                <div class="data-grid-bottom">
+                    <div class="data-section">
+                        <div class="section-header">
+                            <h2><span class="material-icons-round">badge</span> 계약직</h2>
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead><tr><th>쿠코드</th><th>이름</th><th>조</th><th>숙련</th><th>M·HS / A·HS</th><th>P·HS</th></tr></thead>
+                                <tbody id="contractTable"></tbody>
+                            </table>
+                        </div>
                     </div>
-                    <div class="table-container">
-                        <table class="data-table">
-                            <thead><tr><th>Code</th><th>Name</th><th>Skills</th><th>PACK HS</th><th>PICK HS</th></tr></thead>
-                            <tbody id="tempTable"></tbody>
-                        </table>
+                    <div class="data-section">
+                        <div class="section-header">
+                            <h2><span class="material-icons-round">schedule</span> 단기직</h2>
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead><tr><th>쿠코드</th><th>이름</th><th>숙련</th><th>M·HS / A·HS</th><th>P·HS</th></tr></thead>
+                                <tbody id="tempTable"></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- ========== FLOW ========== -->
+            <!-- ========== 현장 배치 ========== -->
             <div id="flow" class="page">
                 <div class="data-section">
                     <div class="section-header">
-                        <h2><span class="material-icons-round">supervisor_account</span> Manager</h2>
+                        <h2><span class="material-icons-round">supervisor_account</span> 매니저</h2>
                     </div>
                     <div class="table-container">
                         <table class="data-table">
-                            <thead><tr><th>Code</th><th>Name</th><th>Nickname</th></tr></thead>
+                            <thead><tr><th>쿠코드</th><th>이름</th><th>닉네임</th></tr></thead>
                             <tbody id="flowManagerTable"></tbody>
                         </table>
                     </div>
                 </div>
                 <div class="data-section">
                     <div class="section-header">
-                        <h2><span class="material-icons-round">military_tech</span> Team Captain</h2>
+                        <h2><span class="material-icons-round">military_tech</span> 팀 캡틴</h2>
                     </div>
                     <div class="table-container">
                         <table class="data-table">
-                            <thead><tr><th>Code</th><th>Nickname</th><th>Name</th><th>Level</th><th>Role</th></tr></thead>
+                            <thead><tr><th>쿠코드</th><th>닉네임</th><th>이름</th><th>레벨</th><th>역할</th></tr></thead>
                             <tbody id="flowTcTable"></tbody>
                         </table>
                     </div>
@@ -413,150 +428,150 @@
                     </div>
                     <div class="table-container">
                         <table class="data-table">
-                            <thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Role</th></tr></thead>
+                            <thead><tr><th>쿠코드</th><th>이름</th><th>상태</th><th>역할</th></tr></thead>
                             <tbody id="flowPsTable"></tbody>
                         </table>
                     </div>
                 </div>
                 <div class="data-section">
                     <div class="section-header">
-                        <h2><span class="material-icons-round">exit_to_app</span> Early Leave</h2>
+                        <h2><span class="material-icons-round">exit_to_app</span> 조퇴 / 결근</h2>
                     </div>
                     <div class="table-container">
                         <table class="data-table">
-                            <thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Note</th></tr></thead>
+                            <thead><tr><th>쿠코드</th><th>이름</th><th>사유</th><th>메모</th></tr></thead>
                             <tbody id="earlyLeaveTable"></tbody>
                         </table>
                     </div>
                 </div>
             </div>
 
-            <!-- ========== PACK ========== -->
+            <!-- ========== PACK 배치 ========== -->
             <div id="pack" class="page">
                 <div class="page-header">
-                    <h2><span class="material-icons-round">inventory_2</span> PACK</h2>
+                    <h2><span class="material-icons-round">inventory_2</span> PACK 배치</h2>
                     <div class="page-controls">
-                        <input type="text" id="packSearch" class="search-input" placeholder="Search...">
+                        <input type="text" id="packSearch" class="search-input" placeholder="이름/코드 검색...">
                         <button id="resetPackBtn" class="reset-btn">
                             <span class="material-icons-round">restart_alt</span>
-                            Reset
+                            초기화
                         </button>
                     </div>
                 </div>
                 <div class="pack-grid">
                     <div class="pack-section" data-zone="autobag-1.2">
                         <div class="zone-header"><h3>Autobag 1.2</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pack-section" data-zone="autobag-2.5">
                         <div class="zone-header"><h3>Autobag 2.5</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pack-section" data-zone="autobag-4.0">
                         <div class="zone-header"><h3>Autobag 4.0</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pack-section" data-zone="autobag-rtpb">
                         <div class="zone-header"><h3>Autobag RTPB</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pack-section" data-zone="autobag-multi">
-                        <div class="zone-header"><h3>Autobag Multi</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="zone-header"><h3>Autobag 멀티</h3><span class="zone-counter">0</span></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pack-section" data-zone="manualpack">
-                        <div class="zone-header"><h3>ManualPack</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="zone-header"><h3>메뉴얼팩</h3><span class="zone-counter">0</span></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pack-section" data-zone="manualpack-multi">
-                        <div class="zone-header"><h3>ManualPack Multi</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="zone-header"><h3>메뉴얼팩 멀티</h3><span class="zone-counter">0</span></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pack-section" data-zone="ace">
                         <div class="zone-header"><h3>ACE</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pack-section" data-zone="ws">
-                        <div class="zone-header"><h3>WS (Water)</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="zone-header"><h3>WS (워터)</h3><span class="zone-counter">0</span></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                 </div>
             </div>
 
-            <!-- ========== PICK ========== -->
+            <!-- ========== PICK 배치 ========== -->
             <div id="pick" class="page">
                 <div class="page-header">
-                    <h2><span class="material-icons-round">pin_drop</span> PICK</h2>
+                    <h2><span class="material-icons-round">pin_drop</span> PICK 배치</h2>
                     <div class="page-controls">
-                        <input type="text" id="pickSearch" class="search-input" placeholder="Search...">
+                        <input type="text" id="pickSearch" class="search-input" placeholder="이름/코드 검색...">
                         <button id="resetPickBtn" class="reset-btn">
                             <span class="material-icons-round">restart_alt</span>
-                            Reset
+                            초기화
                         </button>
                     </div>
                 </div>
                 <div class="pick-grid">
                     <div class="pick-section" data-zone="6.1f">
                         <div class="zone-header"><h3>6.1F</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pick-section" data-zone="6.3f">
                         <div class="zone-header"><h3>6.3F</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pick-section" data-zone="7.1f">
                         <div class="zone-header"><h3>7.1F</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pick-section" data-zone="7.2f">
                         <div class="zone-header"><h3>7.2F</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pick-section" data-zone="7.3f">
                         <div class="zone-header"><h3>7.3F</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pick-section" data-zone="8f">
                         <div class="zone-header"><h3>8F</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pick-section" data-zone="agv">
                         <div class="zone-header"><h3>AGV</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                     <div class="pick-section" data-zone="ws">
-                        <div class="zone-header"><h3>WS (Water)</h3><span class="zone-counter">0</span></div>
-                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Skill</th><th>HTP</th></tr></thead><tbody></tbody></table></div>
+                        <div class="zone-header"><h3>WS (워터)</h3><span class="zone-counter">0</span></div>
+                        <div class="work-table-wrapper"><table class="work-table"><thead><tr><th>코드</th><th>이름</th><th>유형</th><th>숙련</th><th>비고</th></tr></thead><tbody></tbody></table></div>
                     </div>
                 </div>
             </div>
 
-            <!-- ========== RAW ========== -->
+            <!-- ========== HTP 원본 ========== -->
             <div id="raw" class="page">
                 <div class="page-header">
-                    <h2><span class="material-icons-round">table_chart</span> HTP RAW DATA</h2>
+                    <h2><span class="material-icons-round">table_chart</span> HTP 원본 데이터</h2>
                 </div>
                 <div class="coming-soon">
                     <span class="material-icons-round" style="font-size:4rem;opacity:0.3">construction</span>
-                    <p>Coming Soon</p>
+                    <p>준비 중입니다</p>
                 </div>
             </div>
 
-            <!-- ========== SHARE ========== -->
+            <!-- ========== 배치 공유 ========== -->
             <div id="share" class="page">
                 <div class="page-header">
-                    <h2><span class="material-icons-round">share</span> Contract Board</h2>
+                    <h2><span class="material-icons-round">share</span> 계약직 배치판</h2>
                     <div class="page-controls">
                         <button id="copyImageBtn" class="copy-image-btn">
                             <span class="material-icons-round">photo_camera</span>
-                            Copy as Image
+                            이미지 복사
                         </button>
                     </div>
                 </div>
                 <div class="share-section">
                     <div class="contract-board" id="contractBoardCapture">
                         <div class="contract-board-header">
-                            <span class="board-title">Contract Assignment Board</span>
+                            <span class="board-title">계약직 배치 현황판</span>
                             <span class="board-date" id="boardDate"></span>
                         </div>
                         <div id="contractBoardContent" class="contract-board-grid"></div>
@@ -565,11 +580,11 @@
             </div>
         </main>
 
-        <!-- Bottom Navigation -->
+        <!-- 하단 네비게이션 -->
         <nav class="bottom-nav" id="bottomNav">
             <button class="bottom-nav-item active" data-page="dashboard">
                 <span class="material-icons-round">dashboard</span>
-                <span class="nav-label">Home</span>
+                <span class="nav-label">홈</span>
             </button>
             <button class="bottom-nav-item" data-page="pack">
                 <span class="material-icons-round">inventory_2</span>
@@ -581,50 +596,50 @@
             </button>
             <button class="bottom-nav-item" data-page="flow">
                 <span class="material-icons-round">swap_horiz</span>
-                <span class="nav-label">FLOW</span>
+                <span class="nav-label">현장</span>
             </button>
             <button class="bottom-nav-item" data-page="data">
-                <span class="material-icons-round">database</span>
-                <span class="nav-label">DATA</span>
+                <span class="material-icons-round">storage</span>
+                <span class="nav-label">데이터</span>
             </button>
         </nav>
 
-        <!-- Modal -->
+        <!-- 초기화 모달 -->
         <div id="modal" class="modal">
             <div class="modal-content">
                 <div class="modal-header">
                     <span class="material-icons-round modal-icon">warning</span>
-                    <h3>Reset All</h3>
+                    <h3>전체 초기화</h3>
                 </div>
-                <p>Delete all assigned codes?</p>
-                <input type="password" id="resetPassword" placeholder="Password (1234)" maxlength="4">
+                <p>배치된 모든 인원을 삭제하시겠습니까?</p>
+                <input type="password" id="resetPassword" placeholder="비밀번호 (1234)" maxlength="4">
                 <div class="modal-actions">
-                    <button id="cancelReset" class="btn-secondary">Cancel</button>
-                    <button id="confirmReset" class="btn-primary btn-danger">Reset</button>
+                    <button id="cancelReset" class="btn-secondary">취소</button>
+                    <button id="confirmReset" class="btn-primary btn-danger">초기화</button>
                 </div>
             </div>
         </div>
 
-        <!-- Context Menu -->
+        <!-- 우클릭 메뉴 -->
         <div id="contextMenu" class="context-menu">
-            <div class="context-menu-item" data-action="move">Move</div>
-            <div class="context-menu-item" data-action="delete">Delete</div>
+            <div class="context-menu-item" data-action="move">이동</div>
+            <div class="context-menu-item" data-action="delete">삭제</div>
         </div>
 
-        <!-- Autocomplete -->
+        <!-- 자동완성 -->
         <div id="autocomplete" class="autocomplete-dropdown"></div>
 
-        <!-- Activity Feed -->
+        <!-- 활동 피드 -->
         <div class="activity-feed" id="activityFeed">
             <div class="activity-feed-header">
                 <span class="material-icons-round">notifications</span>
-                <span>Activity</span>
+                <span>실시간 활동</span>
                 <button class="activity-feed-close" id="activityFeedClose">
                     <span class="material-icons-round">close</span>
                 </button>
             </div>
             <div class="activity-feed-list" id="activityFeedList">
-                <div class="activity-empty">No recent activity</div>
+                <div class="activity-empty">최근 활동이 없습니다</div>
             </div>
         </div>
     </div>

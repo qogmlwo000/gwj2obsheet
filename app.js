@@ -22,6 +22,8 @@ const state = {
     pickAssignments: {},
     packHTP: {},
     pickHTP: {},
+    packNotes: {},
+    pickNotes: {},
     flowData: {
         managers: [],
         tcs: [],
@@ -75,6 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // 앱 초기화
 function initializeApp() {
     setupMenuToggle();
+    setupBottomNav();
     setupShiftToggle();
     setupThemeToggle();
     setupPageNavigation();
@@ -86,6 +89,8 @@ function initializeApp() {
     setupCopyPaste();
     setupFirebaseUI();
     setupDragAndDrop();
+    setupActivityFeed();
+    setupPresenceSystem();
 }
 
 // 드래그 앤 드롭 전역 변수
@@ -182,12 +187,12 @@ function setupThemeToggle() {
         body.classList.add('dark-mode');
         body.classList.remove('light-mode');
         themeIcon.textContent = '\u2600\uFE0F';
-        themeText.textContent = 'Light Mode';
+        themeText.textContent = '라이트 모드';
     } else {
         body.classList.remove('dark-mode');
         body.classList.add('light-mode');
         themeIcon.textContent = '\uD83C\uDF19';
-        themeText.textContent = 'Dark Mode';
+        themeText.textContent = '다크 모드';
     }
 
     themeToggle.addEventListener('click', () => {
@@ -195,13 +200,13 @@ function setupThemeToggle() {
             body.classList.remove('dark-mode');
             body.classList.add('light-mode');
             themeIcon.textContent = '\uD83C\uDF19';
-            themeText.textContent = 'Dark Mode';
+            themeText.textContent = '다크 모드';
             localStorage.setItem('theme', 'light');
         } else {
             body.classList.remove('light-mode');
             body.classList.add('dark-mode');
             themeIcon.textContent = '\u2600\uFE0F';
-            themeText.textContent = 'Light Mode';
+            themeText.textContent = '라이트 모드';
             localStorage.setItem('theme', 'dark');
         }
     });
@@ -210,22 +215,12 @@ function setupThemeToggle() {
 // 페이지 네비게이션
 function setupPageNavigation() {
     const menuLinks = document.querySelectorAll('.menu-list a');
-    const pages = document.querySelectorAll('.page');
-    const sideMenu = document.getElementById('sideMenu');
 
     menuLinks.forEach(link => {
         link.addEventListener('click', (e) => {
             e.preventDefault();
             const pageId = link.dataset.page;
-
-            menuLinks.forEach(l => l.classList.remove('active'));
-            link.classList.add('active');
-
-            pages.forEach(page => page.classList.remove('active'));
-            document.getElementById(pageId).classList.add('active');
-
-            state.currentPage = pageId;
-            sideMenu.classList.remove('active');
+            if (pageId) navigateToPage(pageId);
         });
     });
 }
@@ -666,6 +661,8 @@ function saveToLocalStorage() {
             pickAssignments: state.pickAssignments,
             packHTP: state.packHTP,
             pickHTP: state.pickHTP,
+            packNotes: state.packNotes,
+            pickNotes: state.pickNotes,
             flowData: state.flowData,
             snopData: state.snopData,
             todaySnop: state.todaySnop,
@@ -682,6 +679,8 @@ function saveToLocalStorage() {
         syncToFirebase('pickAssignments', state.pickAssignments);
         syncToFirebase('packHTP', state.packHTP);
         syncToFirebase('pickHTP', state.pickHTP);
+        syncToFirebase('packNotes', state.packNotes);
+        syncToFirebase('pickNotes', state.pickNotes);
         syncToFirebase('contracts', state.contracts);
         syncToFirebase('temps', state.temps);
     }
@@ -701,6 +700,8 @@ function loadFromLocalStorage() {
     state.pickAssignments = shiftData.pickAssignments || {};
     state.packHTP = shiftData.packHTP || {};
     state.pickHTP = shiftData.pickHTP || {};
+    state.packNotes = shiftData.packNotes || {};
+    state.pickNotes = shiftData.pickNotes || {};
     state.flowData = shiftData.flowData || { managers: [], tcs: [], ps: [], earlyLeave: [] };
     state.snopData = shiftData.snopData || [];
     state.todaySnop = shiftData.todaySnop || 0;
@@ -812,23 +813,33 @@ function renderContractTable() {
     tbody.innerHTML = '';
     
     for (let i = 0; i < 30; i++) {
-        const data = state.contracts[i] || { 
-            code: '', name: '', team: '', 
+        const data = state.contracts[i] || {
+            code: '', name: '', team: '',
             autobag: false, manual: false, agv: false,
-            packHighSkill: false, pickHighSkill: false 
+            manualHighSkill: false, autobagHighSkill: false, pickHighSkill: false
         };
+        // packHighSkill 마이그레이션
+        if (data.packHighSkill !== undefined && data.manualHighSkill === undefined) {
+            if (data.packHighSkill && data.manual) data.manualHighSkill = true;
+            if (data.packHighSkill && data.autobag) data.autobagHighSkill = true;
+            if (data.packHighSkill && !data.manual && !data.autobag) data.manualHighSkill = true;
+            delete data.packHighSkill;
+        }
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td><input type="text" class="user-selectable" value="${data.code}" data-field="code" data-index="${i}"></td>
             <td><input type="text" class="user-selectable" value="${data.name}" data-field="name" data-index="${i}"></td>
             <td><input type="text" class="user-selectable" value="${data.team}" data-field="team" data-index="${i}"></td>
-            <td>
-                <label><input type="checkbox" ${data.autobag ? 'checked' : ''} data-field="autobag" data-index="${i}"> A</label>
-                <label><input type="checkbox" ${data.manual ? 'checked' : ''} data-field="manual" data-index="${i}"> M</label>
-                <label><input type="checkbox" ${data.agv ? 'checked' : ''} data-field="agv" data-index="${i}"> AGV</label>
+            <td class="skill-toggles-cell">
+                <button type="button" class="skill-chip ${data.autobag ? 'active' : ''}" data-field="autobag" data-index="${i}">A</button>
+                <button type="button" class="skill-chip ${data.manual ? 'active' : ''}" data-field="manual" data-index="${i}">M</button>
+                <button type="button" class="skill-chip ${data.agv ? 'active' : ''}" data-field="agv" data-index="${i}">AGV</button>
             </td>
-            <td><input type="checkbox" ${data.packHighSkill ? 'checked' : ''} data-field="packHighSkill" data-index="${i}"></td>
-            <td><input type="checkbox" ${data.pickHighSkill ? 'checked' : ''} data-field="pickHighSkill" data-index="${i}"></td>
+            <td class="hs-toggles-cell">
+                <button type="button" class="hs-chip hs-manual-chip ${data.manualHighSkill ? 'active' : ''}" data-field="manualHighSkill" data-index="${i}" title="메뉴얼 HS">M</button>
+                <button type="button" class="hs-chip hs-autobag-chip ${data.autobagHighSkill ? 'active' : ''}" data-field="autobagHighSkill" data-index="${i}" title="오토백 HS">A</button>
+            </td>
+            <td><button type="button" class="hs-chip hs-pick-chip ${data.pickHighSkill ? 'active' : ''}" data-field="pickHighSkill" data-index="${i}" title="집품 HS">P</button></td>
         `;
         tbody.appendChild(tr);
     }
@@ -843,12 +854,14 @@ function renderContractTable() {
         });
     });
 
-    tbody.querySelectorAll('input[type="checkbox"]').forEach(input => {
-        input.addEventListener('change', (e) => {
+    tbody.querySelectorAll('.skill-chip, .hs-chip').forEach(btn => {
+        btn.addEventListener('click', (e) => {
             const index = parseInt(e.target.dataset.index);
             const field = e.target.dataset.field;
             if (!state.contracts[index]) state.contracts[index] = {};
-            state.contracts[index][field] = e.target.checked;
+            const newVal = !state.contracts[index][field];
+            state.contracts[index][field] = newVal;
+            e.target.classList.toggle('active', newVal);
             saveToLocalStorage();
         });
     });
@@ -860,22 +873,32 @@ function renderTempTable() {
     tbody.innerHTML = '';
     
     for (let i = 0; i < 30; i++) {
-        const data = state.temps[i] || { 
+        const data = state.temps[i] || {
             code: '', name: '',
             autobag: false, manual: false, agv: false,
-            packHighSkill: false, pickHighSkill: false 
+            manualHighSkill: false, autobagHighSkill: false, pickHighSkill: false
         };
+        // packHighSkill 마이그레이션
+        if (data.packHighSkill !== undefined && data.manualHighSkill === undefined) {
+            if (data.packHighSkill && data.manual) data.manualHighSkill = true;
+            if (data.packHighSkill && data.autobag) data.autobagHighSkill = true;
+            if (data.packHighSkill && !data.manual && !data.autobag) data.manualHighSkill = true;
+            delete data.packHighSkill;
+        }
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td><input type="text" class="user-selectable" value="${data.code}" data-field="code" data-index="${i}"></td>
             <td><input type="text" class="user-selectable" value="${data.name}" data-field="name" data-index="${i}"></td>
-            <td>
-                <label><input type="checkbox" ${data.autobag ? 'checked' : ''} data-field="autobag" data-index="${i}"> A</label>
-                <label><input type="checkbox" ${data.manual ? 'checked' : ''} data-field="manual" data-index="${i}"> M</label>
-                <label><input type="checkbox" ${data.agv ? 'checked' : ''} data-field="agv" data-index="${i}"> AGV</label>
+            <td class="skill-toggles-cell">
+                <button type="button" class="skill-chip ${data.autobag ? 'active' : ''}" data-field="autobag" data-index="${i}">A</button>
+                <button type="button" class="skill-chip ${data.manual ? 'active' : ''}" data-field="manual" data-index="${i}">M</button>
+                <button type="button" class="skill-chip ${data.agv ? 'active' : ''}" data-field="agv" data-index="${i}">AGV</button>
             </td>
-            <td><input type="checkbox" ${data.packHighSkill ? 'checked' : ''} data-field="packHighSkill" data-index="${i}"></td>
-            <td><input type="checkbox" ${data.pickHighSkill ? 'checked' : ''} data-field="pickHighSkill" data-index="${i}"></td>
+            <td class="hs-toggles-cell">
+                <button type="button" class="hs-chip hs-manual-chip ${data.manualHighSkill ? 'active' : ''}" data-field="manualHighSkill" data-index="${i}" title="메뉴얼 HS">M</button>
+                <button type="button" class="hs-chip hs-autobag-chip ${data.autobagHighSkill ? 'active' : ''}" data-field="autobagHighSkill" data-index="${i}" title="오토백 HS">A</button>
+            </td>
+            <td><button type="button" class="hs-chip hs-pick-chip ${data.pickHighSkill ? 'active' : ''}" data-field="pickHighSkill" data-index="${i}" title="집품 HS">P</button></td>
         `;
         tbody.appendChild(tr);
     }
@@ -890,12 +913,14 @@ function renderTempTable() {
         });
     });
 
-    tbody.querySelectorAll('input[type="checkbox"]').forEach(input => {
-        input.addEventListener('change', (e) => {
+    tbody.querySelectorAll('.skill-chip, .hs-chip').forEach(btn => {
+        btn.addEventListener('click', (e) => {
             const index = parseInt(e.target.dataset.index);
             const field = e.target.dataset.field;
             if (!state.temps[index]) state.temps[index] = {};
-            state.temps[index][field] = e.target.checked;
+            const newVal = !state.temps[index][field];
+            state.temps[index][field] = newVal;
+            e.target.classList.toggle('active', newVal);
             saveToLocalStorage();
         });
     });
@@ -1089,12 +1114,11 @@ function renderEarlyLeaveTable() {
     });
 }
 
-// PACK 테이블 렌더링
+// PACK 테이블 렌더링 (이벤트 위임 + DocumentFragment 최적화)
 function renderPackTables() {
     const zones = ['autobag-1.2', 'autobag-2.5', 'autobag-4.0', 'autobag-rtpb', 'autobag-multi',
                    'manualpack', 'manualpack-multi', 'ace', 'ws'];
 
-    // 중복 목록 미리 계산
     const allDuplicates = findAllDuplicates();
 
     zones.forEach(zone => {
@@ -1106,141 +1130,112 @@ function renderPackTables() {
         tbody.innerHTML = '';
 
         const assignments = state.packAssignments[zone] || [];
-        const htpData = state.packHTP[zone] || [];
         let activeCount = 0;
-
-        // 필요한 행 수 계산: 입력된 데이터 수 + 여유 빈 칸 5개 (최소 10행)
         const filledCount = assignments.filter(a => a && a.trim()).length;
-        const rowCount = Math.max(10, filledCount + 5);
+        const rowCount = Math.max(15, filledCount + 8);
+        const noteData = state.packNotes ? (state.packNotes[zone] || []) : [];
+        const frag = document.createDocumentFragment();
 
         for (let i = 0; i < rowCount; i++) {
             const code = assignments[i] || '';
             const person = findPersonByCode(code);
-            const htp = htpData[i] || 0;
+            const note = noteData[i] || '';
             const tr = document.createElement('tr');
-
-            // 중복 체크
             const isDuplicate = code && allDuplicates.has(code);
-            if (isDuplicate) {
-                tr.classList.add('duplicate-row');
-            }
-
-            if (code) {
-                tr.dataset.code = code;
-                activeCount++;
-            }
+            if (isDuplicate) tr.classList.add('duplicate-row');
+            if (code) { tr.dataset.code = code; activeCount++; }
 
             let nameCell = '';
             if (person?.name) {
+                const isCrown = (person.type === 'tc' || person.type === 'manager');
+                const crownPrefix = isCrown ? '👑 ' : '';
                 if (isDuplicate) {
-                    nameCell = `<span class="duplicate-badge">${person.name} ⚠️</span>`;
-                } else if (person.packHighSkill) {
-                    nameCell = `<span class="highskill-border highskill-pack">${person.name}</span>`;
+                    nameCell = `<span class="duplicate-badge">${crownPrefix}${person.name} ⚠️</span>`;
+                } else if (person.manualHighSkill) {
+                    nameCell = `<span class="highskill-border highskill-manual-hs">${crownPrefix}${person.name}<span class="hs-badge-label hs-badge-manual">M·HS</span></span>`;
+                } else if (person.autobagHighSkill) {
+                    nameCell = `<span class="highskill-border highskill-autobag-hs">${crownPrefix}${person.name}<span class="hs-badge-label hs-badge-autobag">A·HS</span></span>`;
+                } else if (isCrown) {
+                    nameCell = `<span class="crown-name">${crownPrefix}${person.name}</span>`;
                 } else {
                     nameCell = `<span class="status-cell">${person.name}</span>`;
                 }
             }
 
-            const htpCell = person ?
-                `<input type="number" class="htp-input" value="${htp || ''}" placeholder="0" min="0" data-zone="${zone}" data-index="${i}">` :
-                '';
+            const noteCell = code ?
+                `<input type="text" class="note-input" value="${note}" placeholder="" data-zone="${zone}" data-index="${i}">` : '';
 
-            // 중복 위치 정보
             let duplicateInfo = '';
             if (isDuplicate) {
                 const locations = allDuplicates.get(code)
                     .filter(d => !(d.type === 'pack' && d.zone === zone))
                     .map(d => `${d.type === 'pack' ? 'P' : 'K'}-${d.zoneName}`)
                     .join(', ');
-                if (locations) {
-                    duplicateInfo = `<div class="duplicate-info" title="중복: ${locations}">📍 ${locations}</div>`;
-                }
+                if (locations) duplicateInfo = `<div class="duplicate-info" title="중복: ${locations}">📍 ${locations}</div>`;
             }
 
             tr.innerHTML = `
-                <td><input type="text" class="user-selectable ${isDuplicate ? 'duplicate-input' : ''}" value="${code}" data-zone="${zone}" data-index="${i}" placeholder="쿠코드"></td>
-                <td class="user-selectable">${nameCell}${duplicateInfo}</td>
-                <td class="user-selectable">${person ? getStatusText(person) : ''}</td>
-                <td class="user-selectable">${person ? getSkillBadges(person) : ''}</td>
-                <td class="user-selectable">${htpCell}</td>
+                <td><input type="text" class="code-input user-selectable ${isDuplicate ? 'duplicate-input' : ''}" value="${code}" data-zone="${zone}" data-index="${i}" placeholder="쿠코드"></td>
+                <td class="name-cell user-selectable">${nameCell}${duplicateInfo}</td>
+                <td class="type-cell user-selectable">${person ? getStatusText(person) : ''}</td>
+                <td class="skill-cell user-selectable">${person ? getSkillBadges(person) : ''}</td>
+                <td class="note-cell user-selectable">${noteCell}</td>
             `;
-            tbody.appendChild(tr);
-
-            // 드래그 이벤트 설정 (코드가 있는 행만)
-            if (code) {
-                setupRowDragEvents(tr, code, zone, 'pack');
-            }
+            frag.appendChild(tr);
+            if (code) setupRowDragEvents(tr, code, zone, 'pack');
         }
 
-        if (counterEl) {
-            counterEl.textContent = `${activeCount}명`;
+        tbody.appendChild(frag);
+        if (counterEl) counterEl.textContent = `${activeCount}명`;
+
+        // 이벤트 위임: zone 단위
+        if (!section._packDelegated) {
+            section._packDelegated = true;
+            section.addEventListener('input', (e) => {
+                if (e.target.classList.contains('code-input')) {
+                    const z = e.target.dataset.zone;
+                    const idx = parseInt(e.target.dataset.index);
+                    if (!state.packAssignments[z]) state.packAssignments[z] = [];
+                    state.packAssignments[z][idx] = e.target.value.trim();
+                    saveToLocalStorage();
+                } else if (e.target.classList.contains('note-input')) {
+                    const z = e.target.dataset.zone;
+                    const idx = parseInt(e.target.dataset.index);
+                    if (!state.packNotes) state.packNotes = {};
+                    if (!state.packNotes[z]) state.packNotes[z] = [];
+                    state.packNotes[z][idx] = e.target.value;
+                    saveToLocalStorage();
+                }
+            });
+            section.addEventListener('keydown', (e) => {
+                if (e.target.classList.contains('code-input') && e.key === 'Enter') e.target.blur();
+            });
+            section.addEventListener('focusout', (e) => {
+                if (e.target.classList.contains('code-input')) {
+                    const z = e.target.dataset.zone;
+                    const code = e.target.value.trim();
+                    if (code) {
+                        const duplicates = findDuplicateAssignment(code, z, 'pack');
+                        if (duplicates && duplicates.length > 0) {
+                            const person = findPersonByCode(code);
+                            const name = person?.name || code;
+                            const locs = duplicates.map(d => `${d.type === 'pack' ? 'PACK' : 'PICK'} - ${d.zoneName}`).join(', ');
+                            showNotification(`⚠️ 중복 배치: ${name}님이 이미 [${locs}]에 배치되어 있습니다!`, 'warning');
+                        }
+                    }
+                    clearTimeout(packRenderTimeout);
+                    packRenderTimeout = setTimeout(() => {
+                        if (!isAutocompletePending) { renderPackTables(); updateDashboard(); }
+                    }, 200);
+                }
+            });
         }
-
-        tbody.querySelectorAll('input[type="text"]').forEach(input => {
-            input.addEventListener('input', (e) => {
-                const zone = e.target.dataset.zone;
-                const index = parseInt(e.target.dataset.index);
-                const code = e.target.value.trim();
-
-                if (!state.packAssignments[zone]) state.packAssignments[zone] = [];
-                state.packAssignments[zone][index] = code;
-
-                saveToLocalStorage();
-            });
-
-            // Enter 키로 즉시 렌더링
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.target.blur();
-                }
-            });
-
-            // 포커스 잃을 때 렌더링 및 중복 체크
-            input.addEventListener('blur', () => {
-                const zone = input.dataset.zone;
-                const code = input.value.trim();
-
-                // 중복 체크
-                if (code) {
-                    const duplicates = findDuplicateAssignment(code, zone, 'pack');
-                    if (duplicates && duplicates.length > 0) {
-                        const person = findPersonByCode(code);
-                        const name = person?.name || code;
-                        const locations = duplicates.map(d => `${d.type === 'pack' ? 'PACK' : 'PICK'} - ${d.zoneName}`).join(', ');
-                        showNotification(`⚠️ 중복 배치: ${name}님이 이미 [${locations}]에 배치되어 있습니다!`, 'warning');
-                    }
-                }
-
-                clearTimeout(packRenderTimeout);
-                packRenderTimeout = setTimeout(() => {
-                    if (!isAutocompletePending) {
-                        renderPackTables();
-                        updateDashboard();
-                    }
-                }, 200);
-            });
-        });
-        
-        tbody.querySelectorAll('.htp-input').forEach(input => {
-            input.addEventListener('input', (e) => {
-                const zone = e.target.dataset.zone;
-                const index = parseInt(e.target.dataset.index);
-                const htp = parseInt(e.target.value) || 0;
-                
-                if (!state.packHTP[zone]) state.packHTP[zone] = [];
-                state.packHTP[zone][index] = htp;
-                
-                saveToLocalStorage();
-            });
-        });
     });
 }
 
-// PICK 테이블 렌더링
+// PICK 테이블 렌더링 (이벤트 위임 + DocumentFragment 최적화)
 function renderPickTables() {
     const zones = ['6.1f', '6.3f', '7.1f', '7.2f', '7.3f', '8f', 'agv', 'ws'];
-
-    // 중복 목록 미리 계산
     const allDuplicates = findAllDuplicates();
 
     zones.forEach(zone => {
@@ -1252,137 +1247,108 @@ function renderPickTables() {
         tbody.innerHTML = '';
 
         const assignments = state.pickAssignments[zone] || [];
-        const htpData = state.pickHTP[zone] || [];
+        const noteData = state.pickNotes ? (state.pickNotes[zone] || []) : [];
         let activeCount = 0;
-
-        // 필요한 행 수 계산: 입력된 데이터 수 + 여유 빈 칸 5개 (최소 10행)
         const filledCount = assignments.filter(a => a && a.trim()).length;
-        const rowCount = Math.max(10, filledCount + 5);
+        const rowCount = Math.max(15, filledCount + 8);
+        const frag = document.createDocumentFragment();
 
         for (let i = 0; i < rowCount; i++) {
             const code = assignments[i] || '';
             const person = findPersonByCode(code);
-            const htp = htpData[i] || 0;
+            const note = noteData[i] || '';
             const tr = document.createElement('tr');
-
-            // 중복 체크
             const isDuplicate = code && allDuplicates.has(code);
-            if (isDuplicate) {
-                tr.classList.add('duplicate-row');
-            }
-
-            if (code) {
-                tr.dataset.code = code;
-                activeCount++;
-            }
+            if (isDuplicate) tr.classList.add('duplicate-row');
+            if (code) { tr.dataset.code = code; activeCount++; }
 
             let nameCell = '';
             if (person?.name) {
+                const isCrown = (person.type === 'tc' || person.type === 'manager');
+                const crownPrefix = isCrown ? '👑 ' : '';
                 if (isDuplicate) {
-                    nameCell = `<span class="duplicate-badge">${person.name} ⚠️</span>`;
+                    nameCell = `<span class="duplicate-badge">${crownPrefix}${person.name} ⚠️</span>`;
                 } else if (person.pickHighSkill) {
-                    nameCell = `<span class="highskill-border highskill-pick">${person.name}</span>`;
+                    nameCell = `<span class="highskill-border highskill-pick">${crownPrefix}${person.name}<span class="hs-badge-label hs-badge-pick">P·HS</span></span>`;
+                } else if (isCrown) {
+                    nameCell = `<span class="crown-name">${crownPrefix}${person.name}</span>`;
                 } else {
                     nameCell = `<span class="status-cell">${person.name}</span>`;
                 }
             }
 
-            const htpCell = person ?
-                `<input type="number" class="htp-input" value="${htp || ''}" placeholder="0" min="0" data-zone="${zone}" data-index="${i}">` :
-                '';
+            const noteCell = code ?
+                `<input type="text" class="note-input" value="${note}" placeholder="" data-zone="${zone}" data-index="${i}">` : '';
 
-            // 중복 위치 정보
             let duplicateInfo = '';
             if (isDuplicate) {
                 const locations = allDuplicates.get(code)
                     .filter(d => !(d.type === 'pick' && d.zone === zone))
                     .map(d => `${d.type === 'pack' ? 'P' : 'K'}-${d.zoneName}`)
                     .join(', ');
-                if (locations) {
-                    duplicateInfo = `<div class="duplicate-info" title="중복: ${locations}">📍 ${locations}</div>`;
-                }
+                if (locations) duplicateInfo = `<div class="duplicate-info" title="중복: ${locations}">📍 ${locations}</div>`;
             }
 
             tr.innerHTML = `
-                <td><input type="text" class="user-selectable ${isDuplicate ? 'duplicate-input' : ''}" value="${code}" data-zone="${zone}" data-index="${i}" placeholder="쿠코드"></td>
-                <td class="user-selectable">${nameCell}${duplicateInfo}</td>
-                <td class="user-selectable">${person ? getStatusText(person) : ''}</td>
-                <td class="user-selectable">${person ? getSkillBadges(person) : ''}</td>
-                <td class="user-selectable">${htpCell}</td>
+                <td><input type="text" class="code-input user-selectable ${isDuplicate ? 'duplicate-input' : ''}" value="${code}" data-zone="${zone}" data-index="${i}" placeholder="쿠코드"></td>
+                <td class="name-cell user-selectable">${nameCell}${duplicateInfo}</td>
+                <td class="type-cell user-selectable">${person ? getStatusText(person) : ''}</td>
+                <td class="skill-cell user-selectable">${person ? getSkillBadges(person) : ''}</td>
+                <td class="note-cell user-selectable">${noteCell}</td>
             `;
-            tbody.appendChild(tr);
-
-            // 드래그 이벤트 설정 (코드가 있는 행만)
-            if (code) {
-                setupRowDragEvents(tr, code, zone, 'pick');
-            }
+            frag.appendChild(tr);
+            if (code) setupRowDragEvents(tr, code, zone, 'pick');
         }
 
-        if (counterEl) {
-            counterEl.textContent = `${activeCount}명`;
+        tbody.appendChild(frag);
+        if (counterEl) counterEl.textContent = `${activeCount}명`;
+
+        // 이벤트 위임: zone 단위
+        if (!section._pickDelegated) {
+            section._pickDelegated = true;
+            section.addEventListener('input', (e) => {
+                if (e.target.classList.contains('code-input')) {
+                    const z = e.target.dataset.zone;
+                    const idx = parseInt(e.target.dataset.index);
+                    if (!state.pickAssignments[z]) state.pickAssignments[z] = [];
+                    state.pickAssignments[z][idx] = e.target.value.trim();
+                    saveToLocalStorage();
+                } else if (e.target.classList.contains('note-input')) {
+                    const z = e.target.dataset.zone;
+                    const idx = parseInt(e.target.dataset.index);
+                    if (!state.pickNotes) state.pickNotes = {};
+                    if (!state.pickNotes[z]) state.pickNotes[z] = [];
+                    state.pickNotes[z][idx] = e.target.value;
+                    saveToLocalStorage();
+                }
+            });
+            section.addEventListener('keydown', (e) => {
+                if (e.target.classList.contains('code-input') && e.key === 'Enter') e.target.blur();
+            });
+            section.addEventListener('focusout', (e) => {
+                if (e.target.classList.contains('code-input')) {
+                    const z = e.target.dataset.zone;
+                    const code = e.target.value.trim();
+                    if (code) {
+                        const duplicates = findDuplicateAssignment(code, z, 'pick');
+                        if (duplicates && duplicates.length > 0) {
+                            const person = findPersonByCode(code);
+                            const name = person?.name || code;
+                            const locs = duplicates.map(d => `${d.type === 'pack' ? 'PACK' : 'PICK'} - ${d.zoneName}`).join(', ');
+                            showNotification(`⚠️ 중복 배치: ${name}님이 이미 [${locs}]에 배치되어 있습니다!`, 'warning');
+                        }
+                    }
+                    clearTimeout(pickRenderTimeout);
+                    pickRenderTimeout = setTimeout(() => {
+                        if (!isAutocompletePending) { renderPickTables(); updateDashboard(); }
+                    }, 200);
+                }
+            });
         }
-
-        tbody.querySelectorAll('input[type="text"]').forEach(input => {
-            input.addEventListener('input', (e) => {
-                const zone = e.target.dataset.zone;
-                const index = parseInt(e.target.dataset.index);
-                const code = e.target.value.trim();
-
-                if (!state.pickAssignments[zone]) state.pickAssignments[zone] = [];
-                state.pickAssignments[zone][index] = code;
-
-                saveToLocalStorage();
-            });
-
-            // Enter 키로 즉시 렌더링
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.target.blur();
-                }
-            });
-
-            // 포커스 잃을 때 렌더링 및 중복 체크
-            input.addEventListener('blur', () => {
-                const zone = input.dataset.zone;
-                const code = input.value.trim();
-
-                // 중복 체크
-                if (code) {
-                    const duplicates = findDuplicateAssignment(code, zone, 'pick');
-                    if (duplicates && duplicates.length > 0) {
-                        const person = findPersonByCode(code);
-                        const name = person?.name || code;
-                        const locations = duplicates.map(d => `${d.type === 'pack' ? 'PACK' : 'PICK'} - ${d.zoneName}`).join(', ');
-                        showNotification(`⚠️ 중복 배치: ${name}님이 이미 [${locations}]에 배치되어 있습니다!`, 'warning');
-                    }
-                }
-
-                clearTimeout(pickRenderTimeout);
-                pickRenderTimeout = setTimeout(() => {
-                    if (!isAutocompletePending) {
-                        renderPickTables();
-                        updateDashboard();
-                    }
-                }, 200);
-            });
-        });
-        
-        tbody.querySelectorAll('.htp-input').forEach(input => {
-            input.addEventListener('input', (e) => {
-                const zone = e.target.dataset.zone;
-                const index = parseInt(e.target.dataset.index);
-                const htp = parseInt(e.target.value) || 0;
-                
-                if (!state.pickHTP[zone]) state.pickHTP[zone] = [];
-                state.pickHTP[zone][index] = htp;
-                
-                saveToLocalStorage();
-            });
-        });
     });
 }
 
-// 쿠코드로 인원 찾기
+// 쿠코드로 인원 찾기 (TC, 매니저 포함)
 function findPersonByCode(code) {
     if (!code) return null;
 
@@ -1391,6 +1357,15 @@ function findPersonByCode(code) {
 
     const temp = state.temps.find(t => t && t.code === code);
     if (temp) return { ...temp, type: 'temp' };
+
+    const tc = state.teamCaptains.find(t => t && t.code === code);
+    if (tc) return { ...tc, type: 'tc' };
+
+    const manager = state.managers.find(m => m && m.code === code);
+    if (manager) return { ...manager, type: 'manager' };
+
+    const ps = state.ps.find(p => p && p.code === code);
+    if (ps) return { ...ps, type: 'ps' };
 
     return null;
 }
@@ -1523,10 +1498,18 @@ function findAllDuplicates() {
 
 // 상태 텍스트
 function getStatusText(person) {
-    if (person.type === 'contract' && person.team) {
-        return `계약직 - ${person.team.toUpperCase()}조`;
+    if (person.type === 'tc') {
+        return '<span class="type-badge type-tc">T/C</span>';
+    } else if (person.type === 'manager') {
+        return '<span class="type-badge type-mgr">M/G</span>';
+    } else if (person.type === 'ps') {
+        return '<span class="type-badge type-ps">PS</span>';
+    } else if (person.type === 'contract' && person.team) {
+        return `<span class="type-badge type-contract">${person.team.toUpperCase()}조</span>`;
+    } else if (person.type === 'contract') {
+        return '<span class="type-badge type-contract">계약</span>';
     } else if (person.type === 'temp') {
-        return '단기직';
+        return '<span class="type-badge type-temp">단기</span>';
     }
     return '';
 }
@@ -1620,37 +1603,42 @@ function updateSkillDistribution() {
     document.getElementById('agvCount').textContent = agvCount;
 }
 
-// 하이스킬 분포 업데이트
+// 하이스킬 분포 업데이트 (팩HS → 메뉴얼HS + 오토백HS 분리)
 function updateHighskillDistribution() {
-    // PACK + PICK에 배치된 모든 쿠코드 수집
     const assignedCodes = new Set();
-    
+
     Object.values(state.packAssignments).forEach(assignments => {
         assignments.forEach(code => {
             if (code) assignedCodes.add(code);
         });
     });
-    
+
     Object.values(state.pickAssignments).forEach(assignments => {
         assignments.forEach(code => {
             if (code) assignedCodes.add(code);
         });
     });
-    
-    // 배치된 인원만 필터링
-    let packHighskillCount = 0;
+
+    let manualHsCount = 0;
+    let autobagHsCount = 0;
     let pickHighskillCount = 0;
-    
+
     assignedCodes.forEach(code => {
         const person = findPersonByCode(code);
         if (person) {
-            if (person.packHighSkill) packHighskillCount++;
+            if (person.manualHighSkill) manualHsCount++;
+            if (person.autobagHighSkill) autobagHsCount++;
             if (person.pickHighSkill) pickHighskillCount++;
         }
     });
-    
-    document.getElementById('packHighskillCount').textContent = packHighskillCount;
-    document.getElementById('pickHighskillCount').textContent = pickHighskillCount;
+
+    const manualHsEl = document.getElementById('manualHsCount');
+    const autobagHsEl = document.getElementById('autobagHsCount');
+    const pickHsEl = document.getElementById('pickHighskillCount');
+
+    if (manualHsEl) manualHsEl.textContent = manualHsCount;
+    if (autobagHsEl) autobagHsEl.textContent = autobagHsCount;
+    if (pickHsEl) pickHsEl.textContent = pickHighskillCount;
 }
 
 // 인원 유형 분포 업데이트
@@ -1702,8 +1690,10 @@ function updateWorkerTypeDistribution() {
         tempBar.dataset.percentage = tempPercentage;
     }
     
-    document.getElementById('contractCount').textContent = `${contractCount}명 (${contractPercentage}%)`;
-    document.getElementById('tempCount').textContent = `${tempCount}명 (${tempPercentage}%)`;
+    const contractCountEl = document.getElementById('contractCount');
+    const tempCountEl = document.getElementById('tempCount');
+    if (contractCountEl) contractCountEl.textContent = `${contractCount}명 (${contractPercentage}%)`;
+    if (tempCountEl) tempCountEl.textContent = `${tempCount}명 (${tempPercentage}%)`;
 }
 
 // 구역별 상세 현황 업데이트
@@ -1861,7 +1851,7 @@ function setupAutocomplete() {
     window.addEventListener('resize', handleScrollOrResize);
 
     document.addEventListener('input', (e) => {
-        if (e.target.tagName === 'INPUT' && e.target.type === 'text' && !e.target.disabled) {
+        if (e.target.tagName === 'INPUT' && e.target.type === 'text' && !e.target.disabled && !e.target.classList.contains('note-input')) {
             currentInput = e.target;
             const value = e.target.value.trim().toLowerCase();
 
@@ -1876,7 +1866,7 @@ function setupAutocomplete() {
 
     // focus 이벤트 추가 - 이미 값이 있을 때 포커스하면 자동완성 표시
     document.addEventListener('focus', (e) => {
-        if (e.target.tagName === 'INPUT' && e.target.type === 'text' && !e.target.disabled) {
+        if (e.target.tagName === 'INPUT' && e.target.type === 'text' && !e.target.disabled && !e.target.classList.contains('note-input')) {
             currentInput = e.target;
             const value = e.target.value.trim().toLowerCase();
 
@@ -2005,8 +1995,9 @@ function setupAutocomplete() {
             if (person.agv) skills.push('<span>AGV</span>');
 
             const badges = [];
-            if (person.packHighSkill) badges.push('<span>포장★</span>');
-            if (person.pickHighSkill) badges.push('<span>집품★</span>');
+            if (person.manualHighSkill) badges.push('<span style="color:#84cc16">M·HS</span>');
+            if (person.autobagHighSkill) badges.push('<span style="color:#38bdf8">A·HS</span>');
+            if (person.pickHighSkill) badges.push('<span style="color:#ef4444">P·HS</span>');
 
             return `
                 <div class="autocomplete-item" data-code="${person.code}">
@@ -2093,6 +2084,7 @@ function setupAutocomplete() {
             ...state.contracts.filter(c => c && (c.code || c.name)).map(c => ({ ...c, type: 'contract' })),
             ...state.temps.filter(t => t && (t.code || t.name)).map(t => ({ ...t, type: 'temp' })),
             ...state.teamCaptains.filter(tc => tc && (tc.code || tc.name)).map(tc => ({ ...tc, type: 'tc' })),
+            ...state.managers.filter(m => m && (m.code || m.name)).map(m => ({ ...m, type: 'manager' })),
             ...state.ps.filter(p => p && (p.code || p.name)).map(p => ({ ...p, type: 'ps' }))
         ];
 
@@ -2114,9 +2106,14 @@ function updateClock() {
     const now = new Date();
     const timeStr = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     const dateStr = now.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
-    
-    document.getElementById('liveTime').textContent = timeStr;
-    document.getElementById('liveDate').textContent = dateStr;
+
+    const liveTime = document.getElementById('liveTime');
+    const liveDate = document.getElementById('liveDate');
+    const miniClock = document.getElementById('miniClockTime');
+
+    if (liveTime) liveTime.textContent = timeStr;
+    if (liveDate) liveDate.textContent = dateStr;
+    if (miniClock) miniClock.textContent = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 // SNOP 저장
@@ -2483,22 +2480,29 @@ function showNotification(message, type = 'info') {
     if (existingNotif) {
         existingNotif.remove();
     }
-    
+
     const notification = document.createElement('div');
     notification.className = `notification-toast ${type}`;
     notification.textContent = message;
     document.body.appendChild(notification);
-    
+
     setTimeout(() => {
         notification.classList.add('show');
     }, 10);
-    
+
     setTimeout(() => {
         notification.classList.remove('show');
         setTimeout(() => {
             notification.remove();
         }, 300);
     }, 2000);
+
+    // 활동 피드에도 기록
+    if (typeof addActivity === 'function') {
+        // 이모지 제거한 클린 메시지
+        const cleanMessage = message.replace(/[\u{1F300}-\u{1FBFF}\u2600-\u2B55\u{FE00}-\u{FE0F}]/gu, '').trim();
+        addActivity(cleanMessage, type);
+    }
 }
 
 function getSelectedRows(table, selection) {
@@ -2581,7 +2585,7 @@ async function copyBoardAsImage() {
     try {
         // 버튼 상태 변경
         copyBtn.classList.add('copying');
-        copyBtn.textContent = '⏳ 복사 중...';
+        copyBtn.innerHTML = '<span class="material-icons-round">hourglass_empty</span> 복사 중...';
 
         // 날짜 업데이트
         updateBoardDate();
@@ -2609,13 +2613,13 @@ async function copyBoardAsImage() {
                 // 성공 표시
                 copyBtn.classList.remove('copying');
                 copyBtn.classList.add('success');
-                copyBtn.textContent = '✅ 복사 완료!';
+                copyBtn.innerHTML = '<span class="material-icons-round">check</span> 복사 완료!';
                 showNotification('📷 이미지가 클립보드에 복사되었습니다!', 'success');
 
                 // 3초 후 버튼 원래대로
                 setTimeout(() => {
                     copyBtn.classList.remove('success');
-                    copyBtn.textContent = '📷 이미지로 복사';
+                    copyBtn.innerHTML = '<span class="material-icons-round">photo_camera</span> 이미지 복사';
                 }, 3000);
 
             } catch (clipboardError) {
@@ -2624,14 +2628,14 @@ async function copyBoardAsImage() {
                 downloadImage(canvas);
 
                 copyBtn.classList.remove('copying');
-                copyBtn.textContent = '📷 이미지로 복사';
+                copyBtn.innerHTML = '<span class="material-icons-round">photo_camera</span> 이미지 복사';
             }
         }, 'image/png');
 
     } catch (error) {
         console.error('이미지 캡처 실패:', error);
         copyBtn.classList.remove('copying');
-        copyBtn.textContent = '📷 이미지로 복사';
+        copyBtn.innerHTML = '<span class="material-icons-round">photo_camera</span> 이미지 복사';
         showNotification('❌ 이미지 캡처 실패: ' + error.message, 'error');
     }
 }
@@ -2779,27 +2783,37 @@ async function connectToFirebase() {
         currentRoomName = state.currentShift === 'DAY' ? 'gwj2-day' : 'gwj2-swing';
 
         // 연결 상태 모니터링
+        updateFirebaseStatus('connecting');
         const connectedRef = firebaseDb.ref('.info/connected');
         connectedRef.on('value', (snap) => {
             if (snap.val() === true) {
                 firebaseConnected = true;
                 console.log('Firebase 연결됨');
+                updateFirebaseStatus('connected');
             } else {
                 if (firebaseConnected) {
                     console.log('Firebase 연결 끊김');
                 }
                 firebaseConnected = false;
+                updateFirebaseStatus('disconnected');
             }
         });
 
         // 실시간 리스너 설정
         setupRealtimeListeners();
 
+        // 프레즌스 연결
+        connectPresence();
+
         // 현재 데이터 업로드 (최초 연결 시)
         await uploadCurrentState();
 
+        // 활동 기록
+        addActivity('Firebase 실시간 동기화에 연결되었습니다', 'sync');
+
     } catch (error) {
         console.error('Firebase 연결 실패:', error);
+        updateFirebaseStatus('error');
     }
 }
 
@@ -3007,29 +3021,38 @@ function syncZoneToFirebase(type, zone, assignments) {
 
 // 연결 상태 업데이트
 function updateFirebaseStatus(status) {
-    const statusText = document.getElementById('firebaseStatus');
-    const connectionDot = document.getElementById('connectionDot');
+    // 헤더 동기화 상태 표시
+    const headerSyncDot = document.getElementById('headerSyncDot');
+    const headerSyncText = document.getElementById('headerSyncText');
+    const headerSyncStatus = document.getElementById('headerSyncStatus');
 
-    if (!statusText || !connectionDot) return;
-
-    connectionDot.classList.remove('online', 'offline', 'connecting', 'error');
+    if (headerSyncDot) {
+        headerSyncDot.classList.remove('online', 'offline', 'connecting', 'error');
+    }
+    if (headerSyncStatus) {
+        headerSyncStatus.classList.remove('online', 'offline', 'connecting', 'error');
+    }
 
     switch (status) {
         case 'connected':
-            statusText.textContent = '연결됨';
-            connectionDot.classList.add('online');
+            if (headerSyncText) headerSyncText.textContent = '실시간 동기화';
+            if (headerSyncDot) headerSyncDot.classList.add('online');
+            if (headerSyncStatus) headerSyncStatus.classList.add('online');
             break;
         case 'connecting':
-            statusText.textContent = '연결 중...';
-            connectionDot.classList.add('connecting');
+            if (headerSyncText) headerSyncText.textContent = '연결 중...';
+            if (headerSyncDot) headerSyncDot.classList.add('connecting');
+            if (headerSyncStatus) headerSyncStatus.classList.add('connecting');
             break;
         case 'disconnected':
-            statusText.textContent = '미연결';
-            connectionDot.classList.add('offline');
+            if (headerSyncText) headerSyncText.textContent = '오프라인';
+            if (headerSyncDot) headerSyncDot.classList.add('offline');
+            if (headerSyncStatus) headerSyncStatus.classList.add('offline');
             break;
         case 'error':
-            statusText.textContent = '오류';
-            connectionDot.classList.add('error');
+            if (headerSyncText) headerSyncText.textContent = '연결 오류';
+            if (headerSyncDot) headerSyncDot.classList.add('error');
+            if (headerSyncStatus) headerSyncStatus.classList.add('error');
             break;
     }
 }
@@ -3041,6 +3064,156 @@ function updateLastSyncTime() {
     if (lastSyncEl) {
         lastSyncEl.textContent = `마지막 동기화: ${lastSyncTime.toLocaleTimeString('ko-KR')}`;
     }
+}
+
+// ==================== 프레즌스 시스템 ====================
+
+let presenceRef = null;
+let myPresenceRef = null;
+let presenceUsername = null;
+
+function setupPresenceSystem() {
+    // 사용자 이름 설정 (로컬스토리지에서 가져오거나 랜덤 생성)
+    presenceUsername = localStorage.getItem('gwj2_username');
+    if (!presenceUsername) {
+        const adjectives = ['빠른', '열정적인', '든든한', '멋진', '활기찬', '꼼꼼한', '신속한'];
+        const nouns = ['관리자', '매니저', '팀장', '리더', '총괄', '담당자'];
+        presenceUsername = adjectives[Math.floor(Math.random() * adjectives.length)] + ' ' +
+                          nouns[Math.floor(Math.random() * nouns.length)];
+        localStorage.setItem('gwj2_username', presenceUsername);
+    }
+}
+
+function connectPresence() {
+    if (!firebaseDb || !firebaseConnected) return;
+
+    const roomPresenceRef = firebaseDb.ref(`rooms/${currentRoomName}/presence`);
+
+    // 내 프레즌스 등록
+    myPresenceRef = roomPresenceRef.push();
+    myPresenceRef.set({
+        name: presenceUsername,
+        joinedAt: firebase.database.ServerValue.TIMESTAMP,
+        lastActive: firebase.database.ServerValue.TIMESTAMP
+    });
+
+    // 연결 해제 시 자동 제거
+    myPresenceRef.onDisconnect().remove();
+
+    // 30초마다 활동 갱신
+    setInterval(() => {
+        if (myPresenceRef && firebaseConnected) {
+            myPresenceRef.update({
+                lastActive: firebase.database.ServerValue.TIMESTAMP
+            });
+        }
+    }, 30000);
+
+    // 프레즌스 리스너
+    presenceRef = roomPresenceRef;
+    presenceRef.on('value', (snapshot) => {
+        const users = snapshot.val() || {};
+        renderPresenceUsers(users);
+    });
+}
+
+function renderPresenceUsers(users) {
+    const container = document.getElementById('presenceUsers');
+    const presenceBar = document.getElementById('presenceBar');
+    if (!container) return;
+
+    const userList = Object.values(users);
+
+    if (userList.length === 0) {
+        if (presenceBar) presenceBar.style.display = 'none';
+        return;
+    }
+
+    if (presenceBar) presenceBar.style.display = 'flex';
+
+    container.innerHTML = userList.map(user => {
+        const colors = ['#6366f1', '#f43f5e', '#10b981', '#f59e0b', '#06b6d4', '#8b5cf6', '#ec4899'];
+        const color = colors[Math.abs(hashCode(user.name)) % colors.length];
+        const initial = user.name.charAt(0);
+
+        return `<div class="presence-user" title="${user.name}">
+            <div class="presence-avatar" style="background:${color}">${initial}</div>
+            <span class="presence-name">${user.name}</span>
+            <span class="presence-dot-indicator"></span>
+        </div>`;
+    }).join('');
+}
+
+function hashCode(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash |= 0;
+    }
+    return hash;
+}
+
+// ==================== 활동 피드 ====================
+
+const activityLog = [];
+const MAX_ACTIVITY_ITEMS = 50;
+
+function setupActivityFeed() {
+    const closeBtn = document.getElementById('activityFeedClose');
+    const feedEl = document.getElementById('activityFeed');
+
+    if (closeBtn && feedEl) {
+        closeBtn.addEventListener('click', () => {
+            feedEl.classList.remove('active');
+        });
+    }
+}
+
+function addActivity(message, type = 'info') {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+    activityLog.unshift({ message, type, time: timeStr, timestamp: now.getTime() });
+
+    // 최대 갯수 유지
+    if (activityLog.length > MAX_ACTIVITY_ITEMS) {
+        activityLog.pop();
+    }
+
+    renderActivityFeed();
+}
+
+function renderActivityFeed() {
+    const listEl = document.getElementById('activityFeedList');
+    if (!listEl) return;
+
+    if (activityLog.length === 0) {
+        listEl.innerHTML = '<div class="activity-empty">최근 활동이 없습니다</div>';
+        return;
+    }
+
+    listEl.innerHTML = activityLog.slice(0, 20).map(item => {
+        const icons = {
+            'info': 'info',
+            'success': 'check_circle',
+            'warning': 'warning',
+            'error': 'error',
+            'move': 'swap_horiz',
+            'add': 'person_add',
+            'delete': 'person_remove',
+            'sync': 'sync'
+        };
+        const icon = icons[item.type] || 'info';
+
+        return `<div class="activity-item activity-${item.type}">
+            <span class="material-icons-round activity-icon">${icon}</span>
+            <div class="activity-content">
+                <div class="activity-message">${item.message}</div>
+                <div class="activity-time">${item.time}</div>
+            </div>
+        </div>`;
+    }).join('');
 }
 
 // saveToLocalStorage 함수 수정 - Firebase 동기화 추가
