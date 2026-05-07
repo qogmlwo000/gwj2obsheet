@@ -57,7 +57,7 @@ export async function renderShareTab(root, ctx, params) {
   root.appendChild(page);
 
   const def = SHARE_DEFS[subId] || SHARE_DEFS.pack;
-  const memberIndex = await buildMemberIndex(shift);
+  const memberIndex = await buildMemberIndex(shift, true);
 
   // 헤더
   const head = document.createElement("div");

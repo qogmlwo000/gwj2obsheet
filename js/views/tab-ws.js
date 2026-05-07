@@ -62,7 +62,18 @@ export function renderWSTable({ container, kind, shift, date, memberIndex, onCou
     emptyText: "쿠코드를 입력하거나 엑셀에서 붙여넣으세요.",
     onCommit: async (row, key, value) => {
       const ku = String(row.kucode || "").trim();
-      if (!ku) return { error: key === "kucode" ? "쿠코드를 입력하세요." : undefined };
+      // 쿠코드 비우면 → DB에서 삭제 + 다른 컬럼 클리어
+      if (key === "kucode" && !ku) {
+        if (row.id) {
+          try { await deleteOps(shift, opsKind, row.id); } catch {}
+        }
+        row.id = "";
+        row.name = "";
+        row.team = "";
+        refreshCount();
+        return { patch: { name: "", team: "" } };
+      }
+      if (!ku) return {};
       if (key === "kucode") {
         const fill = autofillFromMaster(memberIndex, ku);
         if (fill) { row.name = fill.name; row.team = fill.team; }

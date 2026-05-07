@@ -1,16 +1,18 @@
 // 통합 데이터 액세스 레이어.
-// Firebase가 설정되어 있으면 Firestore 사용, 아니면 LocalStorage 폴백.
+// Firebase가 설정+권한 OK → Firestore. permission-denied 등 실패 시 자동 LocalStorage 폴백.
 
 import { firebaseConfig, isFirebaseConfigured } from "./firebase-config.js";
 
-const USE_FIREBASE = isFirebaseConfigured();
+const FB_CONFIGURED = isFirebaseConfigured();
 const LS_PREFIX = "gw2ob:";
 
+// 런타임 플래그 — 한 번이라도 permission-denied 가 나오면 false 로 떨어져
+// 이후 모든 작업이 LocalStorage 폴백으로 동작.
+let useFirebase = FB_CONFIGURED;
 let fb = null;
 
-// Firestore + 공유 app 인스턴스 (presence 모듈도 같은 app 사용)
 async function ensureFirebase() {
-  if (!USE_FIREBASE || fb) return fb;
+  if (!useFirebase || fb) return fb;
   const { initializeApp, getApps } = await import(
     "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js"
   );
@@ -23,11 +25,60 @@ async function ensureFirebase() {
   return fb;
 }
 
-// 외부에서 app 인스턴스만 필요할 때 (presence 모듈)
 export async function getFirebaseApp() {
-  if (!USE_FIREBASE) return null;
-  const r = await ensureFirebase();
-  return r?.app || null;
+  if (!FB_CONFIGURED) return null;
+  // app 인스턴스만 필요할 땐 useFirebase 폴백과 무관하게 RTDB 등에서 사용
+  if (fb) return fb.app;
+  const { initializeApp, getApps } = await import(
+    "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js"
+  );
+  const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+  if (!fb) fb = { app };
+  return app;
+}
+
+// 권한 거부 등 Firestore 실패 시 LocalStorage 로 영구 폴백
+function isPermDenied(e) {
+  const msg = String(e?.message || e?.code || e || "");
+  return msg.includes("permission-denied") ||
+         msg.includes("PERMISSION_DENIED") ||
+         msg.includes("Missing or insufficient");
+}
+async function safe(fbFn, lsFn) {
+  if (!useFirebase) return lsFn();
+  try {
+    return await fbFn();
+  } catch (e) {
+    if (isPermDenied(e)) {
+      useFirebase = false;
+      console.warn("[db] Firebase 권한 거부 — LocalStorage 폴백 모드로 전환");
+      window.dispatchEvent(new CustomEvent("gw2ob:fb-fallback"));
+      return lsFn();
+    }
+    // 일시적 네트워크 오류면 한 번 더 LS 폴백 후 throw 안 함
+    console.warn("[db] Firestore 작업 실패, LocalStorage 폴백:", e?.message || e);
+    return lsFn();
+  }
+}
+
+export function getStorageMode() {
+  return useFirebase ? "firestore" : "localstorage";
+}
+export function isFallbackActive() {
+  return FB_CONFIGURED && !useFirebase;
+}
+
+// Firestore 결과 + LocalStorage 결과를 id 기준으로 머지.
+// LS 에만 있는 행도 살리고, 양쪽에 같은 id 가 있으면 Firestore 우선.
+function mergeFsLs(fbList, lsList) {
+  const map = new Map();
+  for (const r of (lsList || [])) {
+    if (r && r.id != null) map.set(String(r.id), r);
+  }
+  for (const r of (fbList || [])) {
+    if (r && r.id != null) map.set(String(r.id), r);
+  }
+  return [...map.values()];
 }
 
 // =================================================================
@@ -35,316 +86,401 @@ export async function getFirebaseApp() {
 // =================================================================
 
 export async function listMaster(shift, role) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const ref = fs.collection(db, "masters", shift, role);
-    const snap = await fs.getDocs(ref);
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  }
-  return readLS(masterKey(shift, role)) || [];
+  const ls = readLS(masterKey(shift, role)) || [];
+  const fb = await safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const ref = fs.collection(db, "masters", shift, role);
+      const snap = await fs.getDocs(ref);
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    () => []
+  );
+  return mergeFsLs(fb, ls);
 }
 
 export async function upsertMaster(shift, role, kucode, data) {
   const docId = String(kucode || "").trim();
   if (!docId) return;
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const ref = fs.doc(db, "masters", shift, role, docId);
-    await fs.setDoc(ref, { ...data, kucode: docId, updatedAt: Date.now() }, { merge: true });
-    return;
-  }
-  const list = readLS(masterKey(shift, role)) || [];
-  const idx = list.findIndex((x) => x.id === docId);
-  const row = { id: docId, kucode: docId, ...data, updatedAt: Date.now() };
-  if (idx >= 0) list[idx] = { ...list[idx], ...row };
-  else list.push(row);
-  writeLS(masterKey(shift, role), list);
+  // LocalStorage 에는 항상 저장 (폴백 시 데이터 보존)
+  const lsWrite = () => {
+    const list = readLS(masterKey(shift, role)) || [];
+    const idx = list.findIndex((x) => x.id === docId);
+    const row = { id: docId, kucode: docId, ...data, updatedAt: Date.now() };
+    if (idx >= 0) list[idx] = { ...list[idx], ...row };
+    else list.push(row);
+    writeLS(masterKey(shift, role), list);
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const ref = fs.doc(db, "masters", shift, role, docId);
+      await fs.setDoc(ref, { ...data, kucode: docId, updatedAt: Date.now() }, { merge: true });
+      lsWrite(); // Firestore 성공해도 로컬 미러링 (오프라인 대비)
+    },
+    lsWrite
+  );
 }
 
 export async function deleteMaster(shift, role, kucode) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    await fs.deleteDoc(fs.doc(db, "masters", shift, role, String(kucode)));
-    return;
-  }
-  const list = readLS(masterKey(shift, role)) || [];
-  writeLS(masterKey(shift, role), list.filter((x) => x.id !== String(kucode)));
+  const id = String(kucode);
+  const lsDel = () => {
+    const list = readLS(masterKey(shift, role)) || [];
+    writeLS(masterKey(shift, role), list.filter((x) => x.id !== id));
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await fs.deleteDoc(fs.doc(db, "masters", shift, role, id));
+      lsDel();
+    },
+    lsDel
+  );
 }
 
 // =================================================================
-// Flow CRUD (per-day records) — captain/ps/leave/newTemp
+// Flow CRUD (per-day) — captain/ps/leave/newTemp
 // =================================================================
 
 export async function listFlow(shift, type, date) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const ref = fs.collection(db, "flows", shift, type);
-    const q = fs.query(ref, fs.where("date", "==", date));
-    const snap = await fs.getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  }
-  const list = readLS(flowKey(shift, type)) || [];
-  return list.filter((x) => x.date === date);
+  const ls = (readLS(flowKey(shift, type)) || []).filter((x) => x.date === date);
+  const fb = await safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const ref = fs.collection(db, "flows", shift, type);
+      const q = fs.query(ref, fs.where("date", "==", date));
+      const snap = await fs.getDocs(q);
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    () => []
+  );
+  return mergeFsLs(fb, ls);
 }
 
 export async function upsertFlow(shift, type, id, data) {
   const docId = id || crypto.randomUUID();
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const ref = fs.doc(db, "flows", shift, type, docId);
-    await fs.setDoc(ref, { ...data, updatedAt: Date.now() }, { merge: true });
-    return docId;
-  }
-  const list = readLS(flowKey(shift, type)) || [];
-  const idx = list.findIndex((x) => x.id === docId);
-  const row = { id: docId, ...data, updatedAt: Date.now() };
-  if (idx >= 0) list[idx] = { ...list[idx], ...row };
-  else list.push(row);
-  writeLS(flowKey(shift, type), list);
-  return docId;
+  const lsWrite = () => {
+    const list = readLS(flowKey(shift, type)) || [];
+    const idx = list.findIndex((x) => x.id === docId);
+    const row = { id: docId, ...data, updatedAt: Date.now() };
+    if (idx >= 0) list[idx] = { ...list[idx], ...row };
+    else list.push(row);
+    writeLS(flowKey(shift, type), list);
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const ref = fs.doc(db, "flows", shift, type, docId);
+      await fs.setDoc(ref, { ...data, updatedAt: Date.now() }, { merge: true });
+      lsWrite();
+      return docId;
+    },
+    () => { lsWrite(); return docId; }
+  );
 }
 
 export async function deleteFlow(shift, type, id) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    await fs.deleteDoc(fs.doc(db, "flows", shift, type, id));
-    return;
-  }
-  const list = readLS(flowKey(shift, type)) || [];
-  writeLS(flowKey(shift, type), list.filter((x) => x.id !== id));
+  const lsDel = () => {
+    const list = readLS(flowKey(shift, type)) || [];
+    writeLS(flowKey(shift, type), list.filter((x) => x.id !== id));
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await fs.deleteDoc(fs.doc(db, "flows", shift, type, id));
+      lsDel();
+    },
+    lsDel
+  );
 }
 
 // =================================================================
-// PACK / PICK 일자별 운영 기록
-// path: ops/{shift}/{kind}/{date}/{group}/{docId}
-//   kind: "pack" | "pick"
-//   group: 라인명 또는 층명. 추가로 subType (싱귤/멀티)는 row 필드로.
+// PACK / PICK (kind: pack | pick | pack_ws | pick_ws)
 // =================================================================
 
 export async function listOps(shift, kind, date) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const ref = fs.collection(db, "ops", shift, kind);
-    const q = fs.query(ref, fs.where("date", "==", date));
-    const snap = await fs.getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  }
-  const list = readLS(opsKey(shift, kind)) || [];
-  return list.filter((x) => x.date === date);
+  const ls = (readLS(opsKey(shift, kind)) || []).filter((x) => x.date === date);
+  const fb = await safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const ref = fs.collection(db, "ops", shift, kind);
+      const q = fs.query(ref, fs.where("date", "==", date));
+      const snap = await fs.getDocs(q);
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    () => []
+  );
+  return mergeFsLs(fb, ls);
 }
 
-// 전체 일자 (사원 카드의 자주 들어가는 라인 집계 등)
 export async function listFlowAll(shift, kind) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const snap = await fs.getDocs(fs.collection(db, "ops", shift, kind));
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  }
-  return readLS(opsKey(shift, kind)) || [];
+  const ls = readLS(opsKey(shift, kind)) || [];
+  const fb = await safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const snap = await fs.getDocs(fs.collection(db, "ops", shift, kind));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    () => []
+  );
+  return mergeFsLs(fb, ls);
 }
 
 export async function upsertOps(shift, kind, id, data) {
   const docId = id || crypto.randomUUID();
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const ref = fs.doc(db, "ops", shift, kind, docId);
-    await fs.setDoc(ref, { ...data, updatedAt: Date.now() }, { merge: true });
-    return docId;
-  }
-  const list = readLS(opsKey(shift, kind)) || [];
-  const idx = list.findIndex((x) => x.id === docId);
-  const row = { id: docId, ...data, updatedAt: Date.now() };
-  if (idx >= 0) list[idx] = { ...list[idx], ...row };
-  else list.push(row);
-  writeLS(opsKey(shift, kind), list);
-  return docId;
+  const lsWrite = () => {
+    const list = readLS(opsKey(shift, kind)) || [];
+    const idx = list.findIndex((x) => x.id === docId);
+    const row = { id: docId, ...data, updatedAt: Date.now() };
+    if (idx >= 0) list[idx] = { ...list[idx], ...row };
+    else list.push(row);
+    writeLS(opsKey(shift, kind), list);
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await fs.setDoc(fs.doc(db, "ops", shift, kind, docId), { ...data, updatedAt: Date.now() }, { merge: true });
+      lsWrite();
+      return docId;
+    },
+    () => { lsWrite(); return docId; }
+  );
 }
 
 export async function deleteOps(shift, kind, id) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    await fs.deleteDoc(fs.doc(db, "ops", shift, kind, id));
-    return;
-  }
-  const list = readLS(opsKey(shift, kind)) || [];
-  writeLS(opsKey(shift, kind), list.filter((x) => x.id !== id));
+  const lsDel = () => {
+    const list = readLS(opsKey(shift, kind)) || [];
+    writeLS(opsKey(shift, kind), list.filter((x) => x.id !== id));
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await fs.deleteDoc(fs.doc(db, "ops", shift, kind, id));
+      lsDel();
+    },
+    lsDel
+  );
 }
 
 // =================================================================
-// 공유 시트 — 계약직 시업 집결지 (일자 무관, 매일 갱신해서 쓰는 마스터)
+// 공유 시트
 // =================================================================
 
 export async function listShare(shift, kind) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const ref = fs.collection(db, "share", shift, kind);
-    const snap = await fs.getDocs(ref);
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  }
-  return readLS(shareKey(shift, kind)) || [];
+  const ls = readLS(shareKey(shift, kind)) || [];
+  const fb = await safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const snap = await fs.getDocs(fs.collection(db, "share", shift, kind));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    () => []
+  );
+  return mergeFsLs(fb, ls);
 }
-
 export async function upsertShare(shift, kind, id, data) {
   const docId = id || crypto.randomUUID();
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const ref = fs.doc(db, "share", shift, kind, docId);
-    await fs.setDoc(ref, { ...data, updatedAt: Date.now() }, { merge: true });
-    return docId;
-  }
-  const list = readLS(shareKey(shift, kind)) || [];
-  const idx = list.findIndex((x) => x.id === docId);
-  const row = { id: docId, ...data, updatedAt: Date.now() };
-  if (idx >= 0) list[idx] = { ...list[idx], ...row };
-  else list.push(row);
-  writeLS(shareKey(shift, kind), list);
-  return docId;
+  const lsWrite = () => {
+    const list = readLS(shareKey(shift, kind)) || [];
+    const idx = list.findIndex((x) => x.id === docId);
+    const row = { id: docId, ...data, updatedAt: Date.now() };
+    if (idx >= 0) list[idx] = { ...list[idx], ...row };
+    else list.push(row);
+    writeLS(shareKey(shift, kind), list);
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await fs.setDoc(fs.doc(db, "share", shift, kind, docId), { ...data, updatedAt: Date.now() }, { merge: true });
+      lsWrite();
+      return docId;
+    },
+    () => { lsWrite(); return docId; }
+  );
 }
-
 export async function deleteShare(shift, kind, id) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    await fs.deleteDoc(fs.doc(db, "share", shift, kind, id));
-    return;
-  }
-  const list = readLS(shareKey(shift, kind)) || [];
-  writeLS(shareKey(shift, kind), list.filter((x) => x.id !== id));
+  const lsDel = () => {
+    const list = readLS(shareKey(shift, kind)) || [];
+    writeLS(shareKey(shift, kind), list.filter((x) => x.id !== id));
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await fs.deleteDoc(fs.doc(db, "share", shift, kind, id));
+      lsDel();
+    },
+    lsDel
+  );
 }
 
 // =================================================================
-// 설정: 마감시간 / 일자별 SNOP / 사원 특이사항
+// 설정 / 기록
 // =================================================================
 
 export async function getDeadlines() {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const snap = await fs.getDoc(fs.doc(db, "settings", "deadlines"));
-    return snap.exists() ? (snap.data().items || []) : [];
-  }
-  return readLS(LS_PREFIX + "settings:deadlines") || [];
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const snap = await fs.getDoc(fs.doc(db, "settings", "deadlines"));
+      return snap.exists() ? (snap.data().items || []) : [];
+    },
+    () => readLS(LS_PREFIX + "settings:deadlines") || []
+  );
 }
-
 export async function setDeadlines(items) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    await fs.setDoc(fs.doc(db, "settings", "deadlines"), { items, updatedAt: Date.now() });
-    return;
-  }
-  writeLS(LS_PREFIX + "settings:deadlines", items);
+  const lsWrite = () => writeLS(LS_PREFIX + "settings:deadlines", items);
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await fs.setDoc(fs.doc(db, "settings", "deadlines"), { items, updatedAt: Date.now() });
+      lsWrite();
+    },
+    lsWrite
+  );
 }
 
 export async function getSnop(shift, date) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const snap = await fs.getDoc(fs.doc(db, "settings", `snop_${shift}_${date}`));
-    return snap.exists() ? (snap.data().value || "") : "";
-  }
-  const map = readLS(LS_PREFIX + `settings:snop:${shift}`) || {};
-  return map[date] || "";
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const snap = await fs.getDoc(fs.doc(db, "settings", `snop_${shift}_${date}`));
+      return snap.exists() ? (snap.data().value || "") : "";
+    },
+    () => {
+      const map = readLS(LS_PREFIX + `settings:snop:${shift}`) || {};
+      return map[date] || "";
+    }
+  );
 }
-
 export async function setSnop(shift, date, value, by = "") {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    await fs.setDoc(fs.doc(db, "settings", `snop_${shift}_${date}`), {
-      value, updatedAt: Date.now(), updatedBy: by, shift, date,
-    });
-    return;
-  }
-  const map = readLS(LS_PREFIX + `settings:snop:${shift}`) || {};
-  map[date] = value;
-  writeLS(LS_PREFIX + `settings:snop:${shift}`, map);
+  const lsWrite = () => {
+    const map = readLS(LS_PREFIX + `settings:snop:${shift}`) || {};
+    map[date] = value;
+    writeLS(LS_PREFIX + `settings:snop:${shift}`, map);
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await fs.setDoc(fs.doc(db, "settings", `snop_${shift}_${date}`), {
+        value, updatedAt: Date.now(), updatedBy: by, shift, date,
+      });
+      lsWrite();
+    },
+    lsWrite
+  );
+}
+export async function getYesterdaySnop(shift, today) {
+  const d = new Date(today);
+  d.setDate(d.getDate() - 1);
+  const y = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return getSnop(shift, y);
 }
 
 export async function getSpecialNote(kucode) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const snap = await fs.getDoc(fs.doc(db, "specialNotes", String(kucode)));
-    return snap.exists() ? (snap.data().note || "") : "";
-  }
-  const map = readLS(LS_PREFIX + "specialNotes") || {};
-  return map[kucode] || "";
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const snap = await fs.getDoc(fs.doc(db, "specialNotes", String(kucode)));
+      return snap.exists() ? (snap.data().note || "") : "";
+    },
+    () => (readLS(LS_PREFIX + "specialNotes") || {})[kucode] || ""
+  );
 }
-
 export async function setSpecialNote(kucode, note, by = "") {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    await fs.setDoc(fs.doc(db, "specialNotes", String(kucode)), {
-      note, updatedAt: Date.now(), updatedBy: by,
-    }, { merge: true });
-    return;
-  }
-  const map = readLS(LS_PREFIX + "specialNotes") || {};
-  map[kucode] = note;
-  writeLS(LS_PREFIX + "specialNotes", map);
+  const lsWrite = () => {
+    const map = readLS(LS_PREFIX + "specialNotes") || {};
+    map[kucode] = note;
+    writeLS(LS_PREFIX + "specialNotes", map);
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await fs.setDoc(fs.doc(db, "specialNotes", String(kucode)), {
+        note, updatedAt: Date.now(), updatedBy: by,
+      }, { merge: true });
+      lsWrite();
+    },
+    lsWrite
+  );
 }
 
 // =================================================================
-// Audit log — 누가 무엇을 언제 수정했는지
-// path: audit/{shift}/{scope}/{auto}
-//   scope: "ops:pack" | "ops:pick" | "master:perm" | ... | "share:pack" | "tcpos"
-//   target: 식별 키 (kucode 또는 docId)
-//   action: "create" | "update" | "delete" | "move"
+// Audit log
 // =================================================================
 
 export async function logAudit({ shift, scope, target, action, by, before, after, detail }) {
   const entry = {
     ts: Date.now(),
     shift, scope, target, action, by: by || "(unknown)",
-    before: before || null,
-    after: after || null,
-    detail: detail || null,
+    before: before || null, after: after || null, detail: detail || null,
   };
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const id = `${entry.ts}_${Math.random().toString(36).slice(2, 8)}`;
-    await fs.setDoc(fs.doc(db, "audit", id), entry);
-    return;
-  }
-  const list = readLS(LS_PREFIX + "audit") || [];
-  list.unshift(entry);
-  writeLS(LS_PREFIX + "audit", list.slice(0, 1000)); // 최근 1000개만
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const id = `${entry.ts}_${Math.random().toString(36).slice(2, 8)}`;
+      await fs.setDoc(fs.doc(db, "audit", id), entry);
+    },
+    () => {
+      const list = readLS(LS_PREFIX + "audit") || [];
+      list.unshift(entry);
+      writeLS(LS_PREFIX + "audit", list.slice(0, 1000));
+    }
+  );
 }
 
 export async function queryAudit({ scope, target, shift, limit = 50 } = {}) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    let q = fs.collection(db, "audit");
-    const conds = [];
-    if (scope)  conds.push(fs.where("scope", "==", scope));
-    if (target) conds.push(fs.where("target", "==", target));
-    if (shift)  conds.push(fs.where("shift", "==", shift));
-    if (conds.length) q = fs.query(q, ...conds, fs.orderBy("ts", "desc"), fs.limit(limit));
-    else q = fs.query(q, fs.orderBy("ts", "desc"), fs.limit(limit));
-    const snap = await fs.getDocs(q);
-    return snap.docs.map((d) => d.data());
-  }
-  const list = readLS(LS_PREFIX + "audit") || [];
-  return list
-    .filter((e) =>
-      (!scope || e.scope === scope) &&
-      (!target || e.target === target) &&
-      (!shift || e.shift === shift)
-    )
-    .slice(0, limit);
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      let q = fs.collection(db, "audit");
+      const conds = [];
+      if (scope)  conds.push(fs.where("scope", "==", scope));
+      if (target) conds.push(fs.where("target", "==", target));
+      if (shift)  conds.push(fs.where("shift", "==", shift));
+      q = conds.length
+        ? fs.query(q, ...conds, fs.orderBy("ts", "desc"), fs.limit(limit))
+        : fs.query(q, fs.orderBy("ts", "desc"), fs.limit(limit));
+      const snap = await fs.getDocs(q);
+      return snap.docs.map((d) => d.data());
+    },
+    () => {
+      const list = readLS(LS_PREFIX + "audit") || [];
+      return list
+        .filter((e) =>
+          (!scope || e.scope === scope) &&
+          (!target || e.target === target) &&
+          (!shift || e.shift === shift)
+        )
+        .slice(0, limit);
+    }
+  );
 }
 
 // =================================================================
-// 실시간 구독 — Firestore onSnapshot 사용. LocalStorage는 폴링.
-// returns unsubscribe function.
+// 실시간 구독
 // =================================================================
 
 export async function subscribeOps(shift, kind, date, callback) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const ref = fs.collection(db, "ops", shift, kind);
-    const q = fs.query(ref, fs.where("date", "==", date));
-    return fs.onSnapshot(q, (snap) => {
-      const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      callback(rows);
-    });
+  if (useFirebase) {
+    try {
+      const { db, fs } = await ensureFirebase();
+      const ref = fs.collection(db, "ops", shift, kind);
+      const q = fs.query(ref, fs.where("date", "==", date));
+      return fs.onSnapshot(q, (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        callback(rows);
+      }, (err) => {
+        if (isPermDenied(err)) {
+          useFirebase = false;
+          window.dispatchEvent(new CustomEvent("gw2ob:fb-fallback"));
+        }
+      });
+    } catch (e) {
+      if (isPermDenied(e)) useFirebase = false;
+      // fall through to LS
+    }
   }
-  // LocalStorage 폴링: 다른 탭의 storage 이벤트 감지
+  // LocalStorage 폴백 — storage 이벤트 (다른 탭 변경)
   const handler = (e) => {
     if (e.key === opsKey(shift, kind)) {
       listOps(shift, kind, date).then(callback);
@@ -354,41 +490,40 @@ export async function subscribeOps(shift, kind, date, callback) {
   return () => window.removeEventListener("storage", handler);
 }
 
-// 어제 SNOP (전일 대비 표시용)
-export async function getYesterdaySnop(shift, today) {
-  const d = new Date(today);
-  d.setDate(d.getDate() - 1);
-  const y = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return getSnop(shift, y);
-}
-
 // =================================================================
 // TC 포지션
-// path: tcpos/{shift}/{date} (단일 문서, 모든 포지션 한 곳에)
 // =================================================================
 
 export async function getTCPosition(shift, date) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const ref = fs.doc(db, "tcpos", `${shift}_${date}`);
-    const snap = await fs.getDoc(ref);
-    return snap.exists() ? snap.data() : { positions: {}, managers: [] };
-  }
-  const map = readLS(LS_PREFIX + `tcpos:${shift}`) || {};
-  return map[date] || { positions: {}, managers: [] };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const snap = await fs.getDoc(fs.doc(db, "tcpos", `${shift}_${date}`));
+      return snap.exists() ? snap.data() : { positions: {}, managers: [] };
+    },
+    () => {
+      const map = readLS(LS_PREFIX + `tcpos:${shift}`) || {};
+      return map[date] || { positions: {}, managers: [] };
+    }
+  );
 }
 
 export async function setTCPosition(shift, date, data) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    await fs.setDoc(fs.doc(db, "tcpos", `${shift}_${date}`), {
-      ...data, updatedAt: Date.now(), shift, date,
-    });
-    return;
-  }
-  const map = readLS(LS_PREFIX + `tcpos:${shift}`) || {};
-  map[date] = data;
-  writeLS(LS_PREFIX + `tcpos:${shift}`, map);
+  const lsWrite = () => {
+    const map = readLS(LS_PREFIX + `tcpos:${shift}`) || {};
+    map[date] = data;
+    writeLS(LS_PREFIX + `tcpos:${shift}`, map);
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await fs.setDoc(fs.doc(db, "tcpos", `${shift}_${date}`), {
+        ...data, updatedAt: Date.now(), shift, date,
+      });
+      lsWrite();
+    },
+    lsWrite
+  );
 }
 
 // =================================================================
@@ -412,7 +547,7 @@ export async function getAllowedNicknames() {
 }
 
 // =================================================================
-// 백업/복원
+// 백업 / 복원 / 초기화
 // =================================================================
 
 export async function exportShift(shift) {
@@ -423,7 +558,7 @@ export async function exportShift(shift) {
   for (const type of ["captain", "ps", "leave", "newTemp"]) {
     result.flows[type] = await listFlowSnapshot(shift, type);
   }
-  for (const kind of ["pack", "pick"]) {
+  for (const kind of ["pack", "pick", "pack_ws", "pick_ws"]) {
     result.ops[kind] = await listFlowAll(shift, kind);
   }
   for (const kind of ["pack", "pick"]) {
@@ -433,12 +568,14 @@ export async function exportShift(shift) {
 }
 
 async function listFlowSnapshot(shift, type) {
-  if (USE_FIREBASE) {
-    const { db, fs } = await ensureFirebase();
-    const snap = await fs.getDocs(fs.collection(db, "flows", shift, type));
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  }
-  return readLS(flowKey(shift, type)) || [];
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const snap = await fs.getDocs(fs.collection(db, "flows", shift, type));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    () => readLS(flowKey(shift, type)) || []
+  );
 }
 
 export async function importShift(shift, payload) {
@@ -465,44 +602,24 @@ export async function wipeShift(shift) {
     for (const row of list) await deleteMaster(shift, role, row.id);
   }
   for (const type of ["captain", "ps", "leave", "newTemp"]) {
-    if (USE_FIREBASE) {
-      const { db, fs } = await ensureFirebase();
-      const snap = await fs.getDocs(fs.collection(db, "flows", shift, type));
-      for (const d of snap.docs) await fs.deleteDoc(fs.doc(db, "flows", shift, type, d.id));
-    } else {
-      writeLS(flowKey(shift, type), []);
-    }
+    const list = readLS(flowKey(shift, type)) || [];
+    for (const r of list) await deleteFlow(shift, type, r.id);
+    writeLS(flowKey(shift, type), []);
+  }
+  for (const kind of ["pack", "pick", "pack_ws", "pick_ws"]) {
+    const list = readLS(opsKey(shift, kind)) || [];
+    for (const r of list) await deleteOps(shift, kind, r.id);
+    writeLS(opsKey(shift, kind), []);
   }
   for (const kind of ["pack", "pick"]) {
-    if (USE_FIREBASE) {
-      const { db, fs } = await ensureFirebase();
-      const snap = await fs.getDocs(fs.collection(db, "ops", shift, kind));
-      for (const d of snap.docs) await fs.deleteDoc(fs.doc(db, "ops", shift, kind, d.id));
-    } else {
-      writeLS(opsKey(shift, kind), []);
-    }
-  }
-  for (const kind of ["pack", "pick"]) {
-    if (USE_FIREBASE) {
-      const { db, fs } = await ensureFirebase();
-      const snap = await fs.getDocs(fs.collection(db, "share", shift, kind));
-      for (const d of snap.docs) await fs.deleteDoc(fs.doc(db, "share", shift, kind, d.id));
-    } else {
-      writeLS(shareKey(shift, kind), []);
-    }
+    const list = readLS(shareKey(shift, kind)) || [];
+    for (const r of list) await deleteShare(shift, kind, r.id);
+    writeLS(shareKey(shift, kind), []);
   }
 }
 
 // =================================================================
-// 모드 정보
-// =================================================================
-
-export function getStorageMode() {
-  return USE_FIREBASE ? "firestore" : "localstorage";
-}
-
-// =================================================================
-// LocalStorage 헬퍼
+// LocalStorage 키
 // =================================================================
 
 const masterKey = (shift, role) => `${LS_PREFIX}master:${shift}:${role}`;

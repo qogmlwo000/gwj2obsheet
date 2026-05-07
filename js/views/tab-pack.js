@@ -58,7 +58,8 @@ export async function renderPackTab(root, ctx) {
   const stripHost = document.createElement("div");
   root.appendChild(stripHost);
 
-  const memberIndex = await buildMemberIndex(shift);
+  // PACK 탭 진입 시 항상 최신 마스터로 새로 빌드 (DATA 변경이 즉시 반영되도록)
+  const memberIndex = await buildMemberIndex(shift, true);
 
   let stripApi = null, wsApi = null;
   let mainCount = 0, wsCount = 0;

@@ -57,7 +57,7 @@ export async function renderPickTab(root, ctx) {
   const stripHost = document.createElement("div");
   root.appendChild(stripHost);
 
-  const memberIndex = await buildMemberIndex(shift);
+  const memberIndex = await buildMemberIndex(shift, true);
 
   let stripApi = null, wsApi = null;
   let mainCount = 0, wsCount = 0;

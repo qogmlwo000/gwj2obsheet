@@ -119,6 +119,20 @@ export async function renderFlowTab(root, ctx, params) {
         onCommit: async (row, key, value) => {
           const date = dateInput.value || todayStr();
           row.date = date;
+          // 쿠코드를 비우면 → 자동 채움 데이터 클리어 + DB에서 행 삭제
+          if (key === "kucode" && !String(value || "").trim()) {
+            if (row.id) {
+              try { await deleteFlow(shift, cur.id, row.id); } catch {}
+            }
+            row.id = "";
+            row.name = "";
+            row.team = "";
+            row.nickname = "";
+            row.position = "";
+            row.leaveTime = "";
+            row.gender = "";
+            return { patch: { name: "", team: "", nickname: "", position: "", leaveTime: "", gender: "" } };
+          }
           // 쿠코드 변경/입력 시 자동 채움
           if (key === "kucode") {
             const patch = await autofill(cur.id, value, masters);

@@ -5,6 +5,7 @@ import { listMaster, upsertMaster, deleteMaster } from "../db.js";
 import { isAdmin, clearNicknameCache } from "../auth.js";
 import { showToast } from "../toast.js";
 import { confirmDialog, alertDialog } from "../components/dialog.js";
+import { clearMemberIndex } from "../components/member-label.js";
 
 const SUBS = [
   { id: "manager", label: "MANAGER" },
@@ -174,28 +175,40 @@ export async function renderDataTab(root, ctx, params) {
     makeNewRow: () => ({ id: "" }),
     onCommit: async (row, key, value) => {
       const kucode = (row.kucode || "").trim();
-      if (!kucode) {
-        return { error: key === "kucode" ? "쿠코드를 입력하세요." : undefined };
+
+      // 쿠코드를 비우면 → 행 자체를 마스터에서 삭제 + 다른 컬럼 클리어
+      if (key === "kucode" && !kucode) {
+        if (row.id) {
+          try { await deleteMaster(shift, cur.id, row.id); } catch {}
+          if (cur.id === "manager" || cur.id === "captain") clearNicknameCache();
+          clearMemberIndex();
+        }
+        row.id = "";
+        row.name = "";
+        row.team = "";
+        row.nickname = "";
+        return { patch: { name: "", team: "", nickname: "" } };
       }
+      if (!kucode) return {};
+
       // 새 행이면 id 부여
       if (!row.id) row.id = kucode;
       // 쿠코드를 바꾼 경우 기존 docId 삭제 후 새로 등록
       if (row.id !== kucode) {
-        try {
-          await deleteMaster(shift, cur.id, row.id);
-        } catch {}
+        try { await deleteMaster(shift, cur.id, row.id); } catch {}
         row.id = kucode;
       }
       await upsertMaster(shift, cur.id, kucode, sanitize(row));
-      if (cur.id === "manager" || cur.id === "captain") {
-        clearNicknameCache();
-      }
+      if (cur.id === "manager" || cur.id === "captain") clearNicknameCache();
+      // member-label 캐시 무효화 — 다른 탭(PACK/PICK/공유)에서 즉시 반영되도록
+      clearMemberIndex();
       return {};
     },
     onDelete: async (row) => {
       if (row.id) {
         await deleteMaster(shift, cur.id, row.id);
         if (cur.id === "manager" || cur.id === "captain") clearNicknameCache();
+        clearMemberIndex();
       }
     },
   });
