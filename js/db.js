@@ -461,30 +461,42 @@ export async function queryAudit({ scope, target, shift, limit = 50 } = {}) {
 // =================================================================
 
 export async function subscribeOps(shift, kind, date, callback) {
+  // Firestore 결과 + LS 결과 머지해서 콜백 호출.
+  // → Firestore 가 빈 결과를 반환해도 LS 데이터가 사라지지 않음.
+  const fireMerged = (fbRows) => {
+    const ls = (readLS(opsKey(shift, kind)) || []).filter((x) => x.date === date);
+    callback(mergeFsLs(fbRows, ls));
+  };
+
   if (useFirebase) {
     try {
       const { db, fs } = await ensureFirebase();
       const ref = fs.collection(db, "ops", shift, kind);
       const q = fs.query(ref, fs.where("date", "==", date));
-      return fs.onSnapshot(q, (snap) => {
-        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        callback(rows);
-      }, (err) => {
-        if (isPermDenied(err)) {
-          useFirebase = false;
-          window.dispatchEvent(new CustomEvent("gw2ob:fb-fallback"));
+      const unsub = fs.onSnapshot(
+        q,
+        (snap) => fireMerged(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+        (err) => {
+          if (isPermDenied(err)) {
+            useFirebase = false;
+            window.dispatchEvent(new CustomEvent("gw2ob:fb-fallback"));
+          }
+          // 권한·네트워크 오류 시에도 LS 데이터로 한 번 콜백
+          fireMerged([]);
         }
-      });
+      );
+      // 첫 onSnapshot 도착 전에도 LS 데이터를 즉시 보여줌
+      fireMerged([]);
+      return unsub;
     } catch (e) {
       if (isPermDenied(e)) useFirebase = false;
       // fall through to LS
     }
   }
-  // LocalStorage 폴백 — storage 이벤트 (다른 탭 변경)
+  // LocalStorage 전용 모드 — storage 이벤트 (다른 탭 변경)
+  fireMerged([]);
   const handler = (e) => {
-    if (e.key === opsKey(shift, kind)) {
-      listOps(shift, kind, date).then(callback);
-    }
+    if (e.key === opsKey(shift, kind)) fireMerged([]);
   };
   window.addEventListener("storage", handler);
   return () => window.removeEventListener("storage", handler);

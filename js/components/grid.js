@@ -34,6 +34,8 @@ export function createGrid(opts) {
   let sortState = { key: null, dir: 1 };
   const selected = new Set();
   let lastClickedIndex = -1;
+  // 체크박스 mousedown + drag 로 범위 선택
+  let dragMode = null; // 'select' | 'deselect' | null
 
   const wrap = document.createElement("div");
   wrap.className = "grid-wrap";
@@ -119,6 +121,10 @@ export function createGrid(opts) {
   }
   document.addEventListener("keydown", onCopyKey);
 
+  // 드래그 종료 — 마우스가 그리드 밖으로 나가도 끝나도록 document 에 등록
+  function onMouseUp() { dragMode = null; }
+  document.addEventListener("mouseup", onMouseUp);
+
   function render() {
     thead.querySelectorAll("th").forEach((th) => {
       const k = th.dataset.colKey;
@@ -187,20 +193,41 @@ export function createGrid(opts) {
       cb.type = "checkbox";
       cb.className = "row-checkbox";
       cb.checked = selected.has(row);
-      cb.addEventListener("click", (e) => {
+
+      // ── mousedown: 드래그 범위 선택 모드 시작 ──
+      cb.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
         if (e.shiftKey && lastClickedIndex >= 0) {
+          // Shift+click — 기존 범위 선택
           const [a, b] = [lastClickedIndex, vi].sort((x, y) => x - y);
           const visible = visibleRows();
           for (let i = a; i <= b; i++) selected.add(visible[i]);
+          dragMode = "select";
           render();
           e.preventDefault();
           return;
         }
-        if (cb.checked) selected.add(row);
+        // 첫 행 토글 + 같은 모드로 드래그 시작
+        const willCheck = !cb.checked;
+        dragMode = willCheck ? "select" : "deselect";
+        if (willCheck) selected.add(row);
         else selected.delete(row);
         lastClickedIndex = vi;
         render();
+        e.preventDefault();
       });
+
+      // 클릭 자체는 mousedown 에서 처리하니 click 은 차단 (중복 토글 방지)
+      cb.addEventListener("click", (e) => e.preventDefault());
+
+      // ── 드래그 중 다른 행 진입 시 같은 모드로 추가/제거 ──
+      tr.addEventListener("mouseenter", () => {
+        if (!dragMode) return;
+        if (dragMode === "select") selected.add(row);
+        else selected.delete(row);
+        render();
+      });
+
       td.appendChild(cb);
       tr.appendChild(td);
     }
@@ -509,6 +536,9 @@ export function createGrid(opts) {
     clearSelection() { selected.clear(); render(); },
     setFilter(text) { filterText = text || ""; render(); },
     refresh() { render(); },
-    destroy() { document.removeEventListener("keydown", onCopyKey); },
+    destroy() {
+      document.removeEventListener("keydown", onCopyKey);
+      document.removeEventListener("mouseup", onMouseUp);
+    },
   };
 }

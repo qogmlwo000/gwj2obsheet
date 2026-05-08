@@ -27,13 +27,13 @@ export function renderWSTable({ container, kind, shift, date, memberIndex, onCou
   container.appendChild(gridHost);
 
   const columns = [
-    { key: "kucode", label: "쿠코드", type: "text", width: "120px" },
+    { key: "kucode", label: "쿠코드", type: "text", width: "100px" },
     {
-      key: "name", label: "성함", type: "label", width: "220px",
+      key: "name", label: "성함", type: "label", width: "180px",
       getLabel: (row) => buildMemberLabel(memberIndex.map.get(String(row.kucode)), row.name),
     },
-    { key: "team", label: "조", type: "text", readonly: true, width: "70px" },
-    { key: "note", label: "비고", type: "text" },
+    { key: "team", label: "조", type: "text", readonly: true, width: "60px" },
+    { key: "note", label: "비고", type: "text", width: "260px" },
   ];
 
   let api = null;

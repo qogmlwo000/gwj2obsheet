@@ -102,11 +102,19 @@ export async function renderShareTab(root, ctx, params) {
     boardHost.innerHTML = "";
     const grouped = new Map();
     def.groups.forEach((g) => grouped.set(g, []));
+    // 미지정/매핑 안 되는 그룹은 한 곳에 모아 별도 처리
+    const stray = [];
     rows.forEach((r) => {
-      const g = r.group || "(미지정)";
-      if (!grouped.has(g)) grouped.set(g, []);
-      grouped.get(g).push(r);
+      const g = r.group || "";
+      if (grouped.has(g)) grouped.get(g).push(r);
+      else if (g) {
+        // PICK: "6.1F · 싱귤" 같은 옛 데이터가 있으면 sub 떼고 매칭 시도
+        const base = g.split(" · ")[0];
+        if (grouped.has(base)) grouped.get(base).push(r);
+        else stray.push(r);
+      } else stray.push(r);
     });
+    if (stray.length) grouped.set("(미지정)", stray);
 
     grouped.forEach((items, g) => {
       const card = document.createElement("section");
@@ -196,7 +204,17 @@ export async function renderShareTab(root, ctx, params) {
 }
 
 function pickVariant(kind, group) {
-  if (kind === "pick") return "floor";
+  if (kind === "pick") {
+    const FLOOR_VARIANTS = {
+      "6.1F":       "floor-1",
+      "6.3F":       "floor-2",
+      "AGV (7.1F)": "floor-3",
+      "7.2F":       "floor-4",
+      "7.3F":       "floor-5",
+      "8F":         "floor-6",
+    };
+    return FLOOR_VARIANTS[group] || "floor";
+  }
   if (group?.includes("오토백")) return "autobag";
   return "manual";
 }

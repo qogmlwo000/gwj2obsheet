@@ -70,6 +70,14 @@ export async function renderTCPosTab(root, ctx) {
   });
   head.appendChild(printBtn);
 
+  // 캡처 버튼 — TC 보드만 PNG 로 저장
+  const captureBtn = document.createElement("button");
+  captureBtn.className = "btn primary";
+  captureBtn.innerHTML = "📸 캡처 (PNG)";
+  captureBtn.title = "이 화면을 이미지로 저장 (보고용)";
+  captureBtn.addEventListener("click", () => captureBoard());
+  head.appendChild(captureBtn);
+
   root.appendChild(head);
 
   // 보드 본문
@@ -301,6 +309,51 @@ export async function renderTCPosTab(root, ctx) {
   });
 
   renderBoard();
+
+  // ───── TC 보드 PNG 캡처 ─────
+  async function captureBoard() {
+    try {
+      captureBtn.disabled = true;
+      captureBtn.textContent = "캡처 중…";
+      const lib = await ensureHtml2Canvas();
+      const target = board;
+      // 흰 배경(라이트) / 다크 배경(다크) 적용해서 깔끔하게
+      const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+      const canvas = await lib(target, {
+        backgroundColor: isDark ? "#0d1117" : "#ffffff",
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      });
+      const dataUrl = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = `TC-포지션_${shift.toUpperCase()}_${dateInput.value}.png`;
+      a.click();
+      showToast("캡처 완료", "success");
+    } catch (e) {
+      console.error(e);
+      showToast("캡처 실패: " + (e.message || e), "error");
+    } finally {
+      captureBtn.disabled = false;
+      captureBtn.innerHTML = "📸 캡처 (PNG)";
+    }
+  }
+}
+
+// html2canvas 동적 로드 (CDN)
+let _html2canvasPromise = null;
+async function ensureHtml2Canvas() {
+  if (window.html2canvas) return window.html2canvas;
+  if (_html2canvasPromise) return _html2canvasPromise;
+  _html2canvasPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+    s.onload = () => resolve(window.html2canvas);
+    s.onerror = () => reject(new Error("html2canvas 로드 실패 (인터넷 연결 확인)"));
+    document.head.appendChild(s);
+  });
+  return _html2canvasPromise;
 }
 
 function todayStr() {

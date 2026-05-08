@@ -8,9 +8,10 @@ import { buildMemberLabel, autofillFromMaster } from "./member-label.js";
 import { openMemberCard } from "./member-card.js";
 import { confirmDialog } from "./dialog.js";
 import { openAuditPanel } from "./audit-panel.js";
-import { listOps, upsertOps, deleteOps, subscribeOps, logAudit } from "../db.js";
+import { listOps, upsertOps, deleteOps, subscribeOps, logAudit, upsertShare, deleteShare, listShare } from "../db.js";
 import { showToast } from "../toast.js";
 import { getSession } from "../auth.js";
+import { markEditing, unmarkEditing, subscribeEditing } from "./editing-presence.js";
 
 const DEFAULT_ROWS = 25;
 
@@ -111,7 +112,7 @@ export function renderPackPickStrip(opts) {
 
   async function reload() {
     allRows = await listOps(shift, kind, date);
-    markDuplicates(allRows);
+    markAllDuplicates(allRows, cards);
     rerender();
   }
 
@@ -119,12 +120,14 @@ export function renderPackPickStrip(opts) {
   (async () => {
     unsub = await subscribeOps(shift, kind, date, (rows) => {
       allRows = rows;
-      markDuplicates(allRows);
+      markAllDuplicates(allRows, cards);
       rerender();
     });
   })();
 
   function rerender() {
+    // 기존 카드들의 editing subscription 해제
+    cards.forEach((c) => { if (c.unsubEditing) try { c.unsubEditing(); } catch {} });
     strip.innerHTML = "";
     cards.length = 0;
     groups.forEach((g) => {
@@ -193,6 +196,8 @@ export function renderPackPickStrip(opts) {
         if (key === "kucode" && !ku) {
           if (row.id) {
             try { await deleteOps(shift, kind, row.id); } catch {}
+            // 공유 시트에서도 같은 사람 제거
+            try { await deleteShareByKucode(shift, kind, row.kucode || row.name); } catch {}
             await logAudit({
               shift, scope: `ops:${kind}`, target: row.name || "(unknown)",
               action: "delete", by: getSession()?.nickname,
@@ -204,7 +209,8 @@ export function renderPackPickStrip(opts) {
           row.id = "";
           row.name = "";
           row.team = "";
-          markDuplicates(allRows);
+          row.__dup = false;        // 명시적 reset (빈 행이 됨)
+          markAllDuplicates(allRows, cards);
           cards.forEach((c) => c.gridApi.refresh());
           refreshTotals();
           return { patch: { name: "", team: "" } };
@@ -224,6 +230,17 @@ export function renderPackPickStrip(opts) {
         const isCreate = !row.id;
         const id = await upsertOps(shift, kind, row.id, sanitize(row));
         row.id = id;
+        // ── 공유 시트 자동 동기화 (kucode 를 docId 로 사용) ──
+        // PICK 의 경우 sub(싱귤/멀티/8.1 등)는 공유 보드에 의미 없으니 group.id 만 사용.
+        try {
+          await upsertShare(shift, kind, ku, {
+            kucode: ku,
+            name: row.name || "",
+            team: row.team || "",
+            group: group.id,
+          });
+        } catch (e) { console.warn("share sync failed", e); }
+
         await logAudit({
           shift, scope: `ops:${kind}`, target: ku,
           action: isCreate ? "create" : "update",
@@ -231,7 +248,7 @@ export function renderPackPickStrip(opts) {
           before, after: sanitize(row),
         });
         if (isCreate && !allRows.includes(row)) allRows.push(row);
-        markDuplicates(allRows);
+        markAllDuplicates(allRows, cards);
         cards.forEach((c) => c.gridApi.refresh());
         refreshTotals();
         return { patch: { name: row.name, team: row.team } };
@@ -244,6 +261,9 @@ export function renderPackPickStrip(opts) {
         });
         if (!ok) return false;
         if (row.id) await deleteOps(shift, kind, row.id);
+        if (row.kucode) {
+          try { await deleteShareByKucode(shift, kind, row.kucode); } catch {}
+        }
         await logAudit({
           shift, scope: `ops:${kind}`, target: row.kucode,
           action: "delete", by: getSession()?.nickname, before: sanitize(row),
@@ -324,6 +344,47 @@ export function renderPackPickStrip(opts) {
     }
 
     addBtn.addEventListener("click", () => grid.addRow());
+
+    // ── 입력 중 인디케이터 (RTDB) ──
+    const scope = `ops:${kind}:${group.id}${sub ? ":" + sub : ""}`;
+    const editingBadge = document.createElement("span");
+    editingBadge.className = "editing-badge";
+    head.appendChild(editingBadge);
+
+    // 본인 입력: focus 시 mark, blur 시 unmark
+    let blurTimer = null;
+    body.addEventListener("focusin", (e) => {
+      if (!e.target.matches(".cell-input")) return;
+      clearTimeout(blurTimer);
+      markEditing(scope).catch(() => {});
+    });
+    body.addEventListener("focusout", (e) => {
+      if (!e.target.matches(".cell-input")) return;
+      clearTimeout(blurTimer);
+      // 다른 셀로 이동했을 수도 있으니 잠깐 대기 후 정리
+      blurTimer = setTimeout(() => {
+        // 본인이 더 이상 grid 안 셀에 포커스 없을 때만 unmark
+        if (!body.contains(document.activeElement)) {
+          unmarkEditing(scope).catch(() => {});
+        }
+      }, 250);
+    });
+
+    // 다른 사용자 편집 구독
+    subscribeEditing(scope, (others) => {
+      if (others && others.length > 0) {
+        el.classList.add("being-edited");
+        const names = [...new Set(others.map((o) => o.nickname).filter(Boolean))];
+        editingBadge.textContent = names.length === 1
+          ? `${names[0]} 입력중...`
+          : `${names.length}명 입력중...`;
+        editingBadge.style.display = "";
+      } else {
+        el.classList.remove("being-edited");
+        editingBadge.style.display = "none";
+      }
+    }).then((un) => { card.unsubEditing = un; });
+
     return card;
   }
 
@@ -368,30 +429,67 @@ export function renderPackPickStrip(opts) {
     if (!ok) return;
     for (const row of rows) {
       const before = sanitize(row);
-      // 다른 kind 로 이동 시 원본 삭제 후 새로 추가
+      const ku = row.kucode;
+      const oldId = row.id;
+
       if (targetKind !== kind) {
-        if (row.id) await deleteOps(shift, kind, row.id);
+        // 다른 kind 로 이동 — 원본 완전 삭제 후 신규 docId 로 등록
+        if (oldId) {
+          try { await deleteOps(shift, kind, oldId); } catch {}
+        }
         const newRow = { ...sanitize(row), date,
           line:  (targetKind === "pack") ? targetGroup : null,
           floor: (targetKind === "pick") ? targetGroup : null,
           subType: targetSub || null,
         };
         delete newRow.id;
-        await upsertOps(shift, targetKind, null, newRow);
+        const newId = await upsertOps(shift, targetKind, null, newRow);
+        // 메모리 캐시도 즉시 정리: allRows 에서 옛 row 제거
+        const idx = allRows.indexOf(row);
+        if (idx >= 0) allRows.splice(idx, 1);
+        // 옛 kind 의 share 도 정리 후 새 kind 의 share 갱신
+        if (ku) {
+          try { await deleteShareByKucode(shift, kind, ku); } catch {}
+          try {
+            await upsertShare(shift, targetKind, ku, {
+              kucode: ku, name: newRow.name || "", team: newRow.team || "",
+              group: targetGroup,
+            });
+          } catch {}
+        }
       } else {
-        row.line  = (targetKind === "pack") ? targetGroup : undefined;
-        row.floor = (targetKind === "pick") ? targetGroup : undefined;
+        // 같은 kind 안 이동 — line/floor/subType 만 갱신 (docId 그대로)
+        row.line  = (targetKind === "pack") ? targetGroup : null;
+        row.floor = (targetKind === "pick") ? targetGroup : null;
         row.subType = targetSub || null;
         await upsertOps(shift, targetKind, row.id, sanitize(row));
+        // 공유도 갱신
+        if (ku) {
+          try {
+            await upsertShare(shift, targetKind, ku, {
+              kucode: ku, name: row.name || "", team: row.team || "",
+              group: targetGroup,
+            });
+          } catch {}
+        }
       }
       await logAudit({
-        shift, scope: `ops:${targetKind}`, target: row.kucode,
+        shift, scope: `ops:${targetKind}`, target: ku,
         action: "move", by: getSession()?.nickname,
         before, after: { line: targetGroup, floor: targetGroup, subType: targetSub, kind: targetKind },
       });
     }
     showToast(`${rows.length}명 → ${targetGroup}${targetSub ? " · " + targetSub : ""}`, "success");
+    // 강제 재로드 (race condition 방지)
     await reload();
+    setTimeout(() => reload(), 60);
+  }
+
+  // 같은 kucode 의 share row 들을 모두 삭제 (개수 적음)
+  async function deleteShareByKucode(shiftV, kindV, kucodeV) {
+    const list = await listShare(shiftV, kindV);
+    const targets = list.filter((r) => String(r.kucode) === String(kucodeV) || String(r.id) === String(kucodeV));
+    for (const r of targets) await deleteShare(shiftV, kindV, r.id);
   }
 
   function copyTSV(rows) {
@@ -408,18 +506,32 @@ export function renderPackPickStrip(opts) {
   };
 }
 
-// 모든 행에서 같은 kucode 가 2회 이상이면 __dup = true
+// 모든 행에서 같은 kucode 가 2회 이상이면 __dup = true.
+// 빈 행 / 데이터 없는 행도 __dup=false 로 반드시 reset.
 function markDuplicates(rows) {
   const counts = new Map();
   rows.forEach((r) => {
+    if (!r) return;
     const k = String(r.kucode || "").trim();
     if (!k) return;
     counts.set(k, (counts.get(k) || 0) + 1);
   });
   rows.forEach((r) => {
+    if (!r) return;
     const k = String(r.kucode || "").trim();
     r.__dup = !!(k && counts.get(k) > 1);
   });
+}
+
+// 카드 안의 모든 grid rows (빈 행 포함) 까지 dup 검사
+// — allRows 에 빠진 행도 __dup=false 로 reset 되어야 ⚠️ 표시가 사라짐
+function markAllDuplicates(allRows, cards) {
+  const all = new Set(allRows || []);
+  (cards || []).forEach((c) => {
+    if (!c?.gridApi) return;
+    c.gridApi.getRows().forEach((r) => all.add(r));
+  });
+  markDuplicates([...all]);
 }
 
 function columnDef(memberIndex) {

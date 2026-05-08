@@ -1,171 +1,150 @@
-// 정교한 고양이 캐릭터 — 그라디언트 털, 큰 눈, 자연스러운 비례.
-// 타이핑 진행률에만 반응 (마우스 추적 안 함).
-// 가만히 있을 때는 가운데 응시 + 자동 깜빡임 + 미세한 호흡 애니메이션.
+// 로그인 화면 SVG — PDA 일지 컨셉의 클립보드 + 체크리스트.
+// 입력 진행률에 따라 체크 항목이 순차적으로 채워지는 애니메이션.
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 export function makeCharacter() {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("class", "login-character");
-  svg.setAttribute("viewBox", "0 0 200 210");
+  svg.setAttribute("viewBox", "0 0 200 220");
   svg.innerHTML = `
     <defs>
-      <radialGradient id="catFur" cx="50%" cy="38%" r="65%">
-        <stop offset="0%"  stop-color="#ffffff"/>
-        <stop offset="55%" stop-color="#fafafa"/>
-        <stop offset="100%" stop-color="#dfe3e8"/>
-      </radialGradient>
-      <linearGradient id="earInner" x1="50%" y1="0%" x2="50%" y2="100%">
-        <stop offset="0%"   stop-color="#ffd2dd"/>
-        <stop offset="100%" stop-color="#ff9fb3"/>
+      <linearGradient id="boardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%"   stop-color="var(--accent)"/>
+        <stop offset="100%" stop-color="var(--accent-2)"/>
       </linearGradient>
-      <radialGradient id="catCheek" cx="50%" cy="50%" r="55%">
-        <stop offset="0%"   stop-color="#ffaab5" stop-opacity=".75"/>
-        <stop offset="100%" stop-color="#ff88a0" stop-opacity="0"/>
-      </radialGradient>
-      <radialGradient id="eyeIris" cx="50%" cy="40%" r="60%">
-        <stop offset="0%"   stop-color="#a5e0fb"/>
-        <stop offset="55%"  stop-color="#3aa8df"/>
-        <stop offset="100%" stop-color="#0c4a6e"/>
-      </radialGradient>
-      <radialGradient id="bodyShade" cx="50%" cy="0%" r="100%">
-        <stop offset="0%"   stop-color="#fff"/>
-        <stop offset="100%" stop-color="#d8dde2"/>
-      </radialGradient>
-      <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
-        <feGaussianBlur in="SourceGraphic" stdDeviation="1.4"/>
+      <linearGradient id="paperGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%"   stop-color="#ffffff"/>
+        <stop offset="100%" stop-color="#f1f6fb"/>
+      </linearGradient>
+      <filter id="boardShadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="var(--accent)" flood-opacity=".25"/>
       </filter>
     </defs>
 
-    <!-- 그림자 -->
-    <ellipse cx="100" cy="201" rx="44" ry="4.5" fill="rgba(0,0,0,.13)"/>
+    <!-- 바닥 그림자 -->
+    <ellipse cx="100" cy="208" rx="62" ry="5" fill="rgba(0,0,0,.14)"/>
 
-    <!-- 작은 통통 몸 (앉은 자세) -->
-    <g class="char-body">
-      <path d="M62 178
-               Q56 200 80 200
-               Q100 204 120 200
-               Q144 200 138 178
-               Q130 158 100 158
-               Q70 158 62 178 Z"
-            fill="url(#bodyShade)" stroke="#c8ccd1" stroke-width="1.6"/>
-      <!-- 가슴 흰털 V -->
-      <path d="M88 175 Q100 188 112 175"
-            fill="none" stroke="#fff" stroke-width="2.5"
-            stroke-linecap="round" stroke-linejoin="round" opacity=".95"/>
+    <!-- 클립보드 본체 -->
+    <g filter="url(#boardShadow)">
+      <rect x="38" y="34" width="124" height="172" rx="14" fill="url(#boardGrad)"/>
+    </g>
+    <!-- 안쪽 종이 -->
+    <rect x="48" y="54" width="104" height="142" rx="8" fill="url(#paperGrad)"/>
+
+    <!-- 클립 (상단 메탈 부분) -->
+    <rect x="78" y="22" width="44" height="22" rx="6"
+          fill="var(--accent-2)" stroke="var(--accent)" stroke-width="2"/>
+    <rect x="84" y="14" width="32" height="14" rx="4"
+          fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/>
+
+    <!-- 헤더 라인 (DAY/SWING 분위기) -->
+    <rect x="58" y="62" width="40" height="4" rx="2" fill="var(--accent)" opacity=".75"/>
+    <rect x="105" y="62" width="20" height="4" rx="2" fill="var(--accent-2)" opacity=".55"/>
+
+    <!-- 체크리스트 항목 4개 -->
+    <g class="check-items">
+      <!-- 1번째 -->
+      <g class="check-item" data-idx="0">
+        <rect class="check-box" x="58" y="80" width="15" height="15" rx="3"
+              fill="#ffffff" stroke="#94a3b8" stroke-width="1.6"/>
+        <path class="check-mark" d="M61 88 L66 92 L72 84"
+              fill="none" stroke="#22c55e" stroke-width="2.2"
+              stroke-linecap="round" stroke-linejoin="round"
+              stroke-dasharray="22" stroke-dashoffset="22"/>
+        <line class="check-line" x1="80" y1="88" x2="138" y2="88"
+              stroke="#cbd5e1" stroke-width="2.2" stroke-linecap="round"/>
+      </g>
+      <!-- 2번째 -->
+      <g class="check-item" data-idx="1">
+        <rect class="check-box" x="58" y="105" width="15" height="15" rx="3"
+              fill="#ffffff" stroke="#94a3b8" stroke-width="1.6"/>
+        <path class="check-mark" d="M61 113 L66 117 L72 109"
+              fill="none" stroke="#22c55e" stroke-width="2.2"
+              stroke-linecap="round" stroke-linejoin="round"
+              stroke-dasharray="22" stroke-dashoffset="22"/>
+        <line class="check-line" x1="80" y1="113" x2="130" y2="113"
+              stroke="#cbd5e1" stroke-width="2.2" stroke-linecap="round"/>
+      </g>
+      <!-- 3번째 -->
+      <g class="check-item" data-idx="2">
+        <rect class="check-box" x="58" y="130" width="15" height="15" rx="3"
+              fill="#ffffff" stroke="#94a3b8" stroke-width="1.6"/>
+        <path class="check-mark" d="M61 138 L66 142 L72 134"
+              fill="none" stroke="#22c55e" stroke-width="2.2"
+              stroke-linecap="round" stroke-linejoin="round"
+              stroke-dasharray="22" stroke-dashoffset="22"/>
+        <line class="check-line" x1="80" y1="138" x2="125" y2="138"
+              stroke="#cbd5e1" stroke-width="2.2" stroke-linecap="round"/>
+      </g>
+      <!-- 4번째 -->
+      <g class="check-item" data-idx="3">
+        <rect class="check-box" x="58" y="155" width="15" height="15" rx="3"
+              fill="#ffffff" stroke="#94a3b8" stroke-width="1.6"/>
+        <path class="check-mark" d="M61 163 L66 167 L72 159"
+              fill="none" stroke="#22c55e" stroke-width="2.2"
+              stroke-linecap="round" stroke-linejoin="round"
+              stroke-dasharray="22" stroke-dashoffset="22"/>
+        <line class="check-line" x1="80" y1="163" x2="135" y2="163"
+              stroke="#cbd5e1" stroke-width="2.2" stroke-linecap="round"/>
+      </g>
     </g>
 
-    <!-- 발(앞발) -->
-    <ellipse cx="82" cy="200" rx="10" ry="3.5" fill="#fafafa" stroke="#c8ccd1" stroke-width="1.2"/>
-    <ellipse cx="118" cy="200" rx="10" ry="3.5" fill="#fafafa" stroke="#c8ccd1" stroke-width="1.2"/>
-    <!-- 발가락 디테일 -->
-    <circle cx="78" cy="200" r="1.2" fill="#ffb5c2"/>
-    <circle cx="82" cy="200" r="1.2" fill="#ffb5c2"/>
-    <circle cx="86" cy="200" r="1.2" fill="#ffb5c2"/>
-    <circle cx="114" cy="200" r="1.2" fill="#ffb5c2"/>
-    <circle cx="118" cy="200" r="1.2" fill="#ffb5c2"/>
-    <circle cx="122" cy="200" r="1.2" fill="#ffb5c2"/>
-
-    <!-- 머리 (살짝 사다리꼴 둥근 형태) -->
-    <path d="M40 110
-             Q40 60 100 50
-             Q160 60 160 110
-             Q160 156 100 162
-             Q40 156 40 110 Z"
-          fill="url(#catFur)" stroke="#bfc4ca" stroke-width="2.2"/>
-
-    <!-- 왼쪽 귀 (외측) -->
-    <path d="M52 80 Q44 26 82 56 Q72 70 52 80 Z"
-          fill="url(#catFur)" stroke="#bfc4ca" stroke-width="2.2" stroke-linejoin="round"/>
-    <!-- 왼쪽 귀 (내측 분홍) -->
-    <path d="M58 75 Q52 38 78 60 Q70 70 58 75 Z" fill="url(#earInner)"/>
-
-    <!-- 오른쪽 귀 (외측) -->
-    <path d="M148 80 Q156 26 118 56 Q128 70 148 80 Z"
-          fill="url(#catFur)" stroke="#bfc4ca" stroke-width="2.2" stroke-linejoin="round"/>
-    <!-- 오른쪽 귀 (내측 분홍) -->
-    <path d="M142 75 Q148 38 122 60 Q130 70 142 75 Z" fill="url(#earInner)"/>
-
-    <!-- 이마 줄무늬 (살짝) -->
-    <path d="M86 64 Q92 60 98 65" fill="none" stroke="#a8acb1" stroke-width="1.6" stroke-linecap="round" opacity=".55"/>
-    <path d="M102 65 Q108 60 114 64" fill="none" stroke="#a8acb1" stroke-width="1.6" stroke-linecap="round" opacity=".55"/>
-
-    <!-- 볼 (분홍 글로우) -->
-    <ellipse cx="60" cy="120" rx="14" ry="9" fill="url(#catCheek)"/>
-    <ellipse cx="140" cy="120" rx="14" ry="9" fill="url(#catCheek)"/>
-
-    <!-- 눈 외곽선(아이라이너 효과) -->
-    <ellipse cx="78" cy="103" rx="12" ry="14.5" fill="#1a1a1a" opacity=".15"/>
-    <ellipse cx="122" cy="103" rx="12" ry="14.5" fill="#1a1a1a" opacity=".15"/>
-    <!-- 눈 흰자 -->
-    <ellipse cx="78" cy="103" rx="11" ry="13.5" fill="#ffffff" stroke="#2a2a2a" stroke-width="2"/>
-    <ellipse cx="122" cy="103" rx="11" ry="13.5" fill="#ffffff" stroke="#2a2a2a" stroke-width="2"/>
-
-    <!-- 눈동자 (큰 iris + 세로 동공) -->
-    <g class="char-pupils">
-      <ellipse class="char-iris-l"  cx="78"  cy="103" rx="7"  ry="12"   fill="url(#eyeIris)"/>
-      <ellipse class="char-iris-r"  cx="122" cy="103" rx="7"  ry="12"   fill="url(#eyeIris)"/>
-      <!-- 동공 -->
-      <ellipse class="char-pupil-l" cx="78"  cy="103" rx="2.4" ry="10.5" fill="#0a0a0a"/>
-      <ellipse class="char-pupil-r" cx="122" cy="103" rx="2.4" ry="10.5" fill="#0a0a0a"/>
-      <!-- 메인 하이라이트 -->
-      <ellipse class="char-glint-l"  cx="80.5" cy="98"  rx="2.4" ry="3.4" fill="#ffffff"/>
-      <ellipse class="char-glint-r"  cx="124.5" cy="98" rx="2.4" ry="3.4" fill="#ffffff"/>
-      <!-- 보조 하이라이트 -->
-      <ellipse class="char-glint-l2" cx="76"  cy="110" rx="1.1" ry="1.5" fill="#ffffff" opacity=".75"/>
-      <ellipse class="char-glint-r2" cx="120" cy="110" rx="1.1" ry="1.5" fill="#ffffff" opacity=".75"/>
+    <!-- 펜 (살짝 기운) -->
+    <g class="pen" transform="translate(110 175) rotate(-22)">
+      <rect x="0" y="0" width="42" height="7" rx="2" fill="var(--accent)"/>
+      <rect x="-2" y="1" width="3" height="5" fill="var(--accent-2)"/>
+      <polygon points="42,0 50,3.5 42,7" fill="var(--accent-2)"/>
+      <circle cx="50" cy="3.5" r="1.4" fill="var(--accent)"/>
     </g>
 
-    <!-- 코 (분홍 작은 삼각/하트) -->
-    <path d="M93 124 Q100 119 107 124 L100 132 Z"
-          fill="#ff85a0" stroke="#e96d8a" stroke-width="1.2" stroke-linejoin="round"/>
-
-    <!-- 입 (M자) -->
-    <path d="M100 132 Q100 137 95 137 Q90 137 88 134"
-          fill="none" stroke="#2a2a2a" stroke-width="2" stroke-linecap="round"/>
-    <path d="M100 132 Q100 137 105 137 Q110 137 112 134"
-          fill="none" stroke="#2a2a2a" stroke-width="2" stroke-linecap="round"/>
-
-    <!-- 수염 (각 3가닥씩) -->
-    <line x1="36"  y1="120" x2="64"  y2="122" stroke="#9aa0a6" stroke-width="1.4" stroke-linecap="round" opacity=".75"/>
-    <line x1="34"  y1="128" x2="64"  y2="127" stroke="#9aa0a6" stroke-width="1.4" stroke-linecap="round" opacity=".75"/>
-    <line x1="36"  y1="136" x2="64"  y2="132" stroke="#9aa0a6" stroke-width="1.4" stroke-linecap="round" opacity=".75"/>
-    <line x1="164" y1="120" x2="136" y2="122" stroke="#9aa0a6" stroke-width="1.4" stroke-linecap="round" opacity=".75"/>
-    <line x1="166" y1="128" x2="136" y2="127" stroke="#9aa0a6" stroke-width="1.4" stroke-linecap="round" opacity=".75"/>
-    <line x1="164" y1="136" x2="136" y2="132" stroke="#9aa0a6" stroke-width="1.4" stroke-linecap="round" opacity=".75"/>
-
-    <!-- 깜빡임용 윗꺼풀 -->
-    <rect class="char-lid-l" x="68"  y="89" width="22" height="0" fill="#fafafa"/>
-    <rect class="char-lid-r" x="112" y="89" width="22" height="0" fill="#fafafa"/>
+    <!-- 반짝이 디테일 -->
+    <text x="172" y="50" font-size="14" fill="var(--accent)" opacity=".7">✦</text>
+    <text x="22" y="92" font-size="11" fill="var(--accent)" opacity=".6">✧</text>
+    <text x="178" y="170" font-size="12" fill="var(--accent)" opacity=".55">✦</text>
   `;
   return svg;
 }
 
-// progress: 0~1 (입력 진행률).
-// y: -1~1 (수직 변위).
+// 입력 진행률(0~1) 에 따라 체크 박스가 1→4 순차적으로 채워짐.
 export function lookAt(svg, progress, vertical = 0) {
-  const dx = clamp(progress, 0, 1) * 6 - 3;        // -3 ~ +3 px
-  const dy = clamp(vertical, -1, 1) * 1.8;
-  const t = `translate(${dx}px, ${dy}px)`;
-  ["char-iris-l", "char-iris-r",
-   "char-pupil-l", "char-pupil-r",
-   "char-glint-l", "char-glint-r",
-   "char-glint-l2", "char-glint-r2"].forEach((c) => {
-    const el = svg.querySelector("." + c);
-    if (el) el.style.transform = t;
+  const total = 4;
+  const filled = Math.min(total, Math.floor(progress * total + 0.001));
+  const items = svg.querySelectorAll(".check-item");
+  items.forEach((item, i) => {
+    const box = item.querySelector(".check-box");
+    const mark = item.querySelector(".check-mark");
+    const line = item.querySelector(".check-line");
+    if (!box || !mark) return;
+    if (i < filled) {
+      box.setAttribute("fill", "#22c55e");
+      box.setAttribute("stroke", "#16a34a");
+      mark.setAttribute("stroke", "#ffffff");
+      mark.style.strokeDashoffset = "0";
+      mark.style.transition = "stroke-dashoffset .35s ease-out";
+      if (line) line.style.opacity = ".35";
+    } else {
+      box.setAttribute("fill", "#ffffff");
+      box.setAttribute("stroke", "#94a3b8");
+      mark.setAttribute("stroke", "#22c55e");
+      mark.style.strokeDashoffset = "22";
+      mark.style.transition = "stroke-dashoffset .25s ease-in";
+      if (line) line.style.opacity = ".7";
+    }
   });
 }
 
+// 살짝 흔들리는 펄스 효과 (입력 시 피드백)
 export function blink(svg) {
-  const ll = svg.querySelector(".char-lid-l");
-  const lr = svg.querySelector(".char-lid-r");
-  if (!ll || !lr) return;
-  const opts = { duration: 220, easing: "ease-out" };
-  ll.animate([{ height: 0 }, { height: 26 }, { height: 0 }], opts);
-  lr.animate([{ height: 0 }, { height: 26 }, { height: 0 }], opts);
+  const board = svg.querySelector("rect[fill='url(#boardGrad)']");
+  if (!board) return;
+  board.animate(
+    [{ transform: "scale(1)" }, { transform: "scale(1.02)" }, { transform: "scale(1)" }],
+    { duration: 300, easing: "ease-out" }
+  );
 }
 
-// 입력 박스에 바인딩 — 타이핑 진행률에만 반응.
+// 입력 박스에 바인딩 — 타이핑 진행률에만 반응
 export function bindToInput(svg, input) {
   let blinkTimer = null;
 
@@ -173,35 +152,28 @@ export function bindToInput(svg, input) {
     const len = input.value.length;
     const max = Math.max(8, input.maxLength || 24);
     const progress = Math.min(1, len / max);
-    const wobble = Math.sin(len * 0.85) * 0.4;
-    lookAt(svg, progress, wobble);
+    lookAt(svg, progress);
     clearTimeout(blinkTimer);
-    blinkTimer = setTimeout(() => blink(svg), 420);
+    blinkTimer = setTimeout(() => blink(svg), 360);
   };
 
   input.addEventListener("input", onInput);
 
-  // 가만히 있을 때 살짝 좌우로 응시(아이들 모션) + 자동 깜빡임
-  let idlePhase = 0;
+  // 초기 상태 — 첫 항목 1개만 미리 체크해서 살아있는 느낌
+  setTimeout(() => lookAt(svg, 0.05), 100);
+
+  // 가만히 있을 때 부드러운 idle 모션 (살짝 들숨/날숨)
+  let phase = 0;
   const idleTimer = setInterval(() => {
-    if (input.value.length > 0) return;
-    idlePhase += 0.2;
-    lookAt(svg, 0.5 + Math.sin(idlePhase) * 0.15, 0);
-  }, 90);
-
-  const autoBlink = setInterval(() => {
-    if (Math.random() < 0.6) blink(svg);
-  }, 4400);
-
-  // 처음에 가운데 응시
-  lookAt(svg, 0.5, 0);
+    phase += 0.05;
+    const s = 1 + Math.sin(phase) * 0.005;
+    svg.style.transform = `scale(${s})`;
+  }, 60);
 
   return () => {
     input.removeEventListener("input", onInput);
     clearInterval(idleTimer);
-    clearInterval(autoBlink);
     clearTimeout(blinkTimer);
+    svg.style.transform = "";
   };
 }
-
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
