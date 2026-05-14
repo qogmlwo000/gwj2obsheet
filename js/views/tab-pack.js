@@ -70,12 +70,18 @@ export async function renderPackTab(root, ctx) {
 
   dateInput.addEventListener("change", () => {
     if (stripApi?.destroy) stripApi.destroy();
+    if (wsApi?.destroy) wsApi.destroy();
     stripHost.innerHTML = "";
     wsBody.innerHTML = "";
     build();
   });
 
   build();
+
+  return () => {
+    if (stripApi?.destroy) try { stripApi.destroy(); } catch {}
+    if (wsApi?.destroy) try { wsApi.destroy(); } catch {}
+  };
 }
 
 function todayStr() {

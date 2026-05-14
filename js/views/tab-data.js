@@ -1,7 +1,8 @@
 // DATA 탭 — 5개 서브카테고리(MANAGER / TEAM CAPTAIN / PS / PERM / TEMP) 각각 EditableGrid.
+// 실시간 구독: subscribeMaster 로 다른 사용자가 추가/수정/삭제한 행을 자동 반영.
 
 import { createGrid } from "../components/grid.js";
-import { listMaster, upsertMaster, deleteMaster } from "../db.js";
+import { listMaster, upsertMaster, deleteMaster, subscribeMaster } from "../db.js";
 import { isAdmin, clearNicknameCache } from "../auth.js";
 import { showToast } from "../toast.js";
 import { confirmDialog, alertDialog } from "../components/dialog.js";
@@ -122,9 +123,10 @@ export async function renderDataTab(root, ctx, params) {
   pasteHelp.className = "btn ghost";
   pasteHelp.innerHTML = "📋 붙여넣기 도움말";
   pasteHelp.addEventListener("click", () =>
-    alert(
-      "엑셀에서 셀 영역을 복사한 뒤,\n표의 시작 셀을 클릭하고 Ctrl+V 를 눌러주세요.\n행이 부족하면 자동으로 추가됩니다.\n\n반대로 행 좌측 체크박스로 선택하고 Ctrl+C 를 누르면\n쿠코드/성함/조 가 한꺼번에 클립보드에 복사돼서\n엑셀에 그대로 붙여넣을 수 있어요."
-    )
+    alertDialog({
+      title: "엑셀 ↔ 표 데이터 주고받기",
+      message: "엑셀에서 셀 영역을 복사한 뒤,\n표의 시작 셀을 클릭하고 Ctrl+V 를 눌러주세요.\n행이 부족하면 자동으로 추가됩니다.\n\n반대로 행 좌측 체크박스로 선택하고 Ctrl+C 를 누르면\n쿠코드/성함/조 가 한꺼번에 클립보드에 복사돼서\n엑셀에 그대로 붙여넣을 수 있어요.",
+    })
   );
   actionBar.appendChild(pasteHelp);
 
@@ -144,10 +146,16 @@ export async function renderDataTab(root, ctx, params) {
     wipe.innerHTML = "⚠ 비우기";
     wipe.title = "이 카테고리의 모든 데이터 삭제";
     wipe.addEventListener("click", async () => {
-      if (!confirm(`${cur.label} 데이터를 전부 삭제할까요?`)) return;
+      const ok = await confirmDialog({
+        title: "카테고리 전체 삭제",
+        message: `${cur.label} 데이터를 전부 삭제할까요?`,
+        danger: true, yes: "삭제", no: "취소",
+      });
+      if (!ok) return;
       const list = await listMaster(shift, cur.id);
       for (const r of list) await deleteMaster(shift, cur.id, r.id);
       clearNicknameCache();
+      clearMemberIndex();
       showToast("삭제 완료", "success");
       renderDataTab(root, ctx, params);
     });
@@ -173,7 +181,7 @@ export async function renderDataTab(root, ctx, params) {
     selectable: true,
     copyKeys: COPY_KEYS[cur.id],
     makeNewRow: () => ({ id: "" }),
-    onCommit: async (row, key, value) => {
+    onCommit: async (row, key, value, prevSnapshot) => {
       const kucode = (row.kucode || "").trim();
 
       // 쿠코드를 비우면 → 행 자체를 마스터에서 삭제 + 다른 컬럼 클리어
@@ -213,8 +221,50 @@ export async function renderDataTab(root, ctx, params) {
     },
   });
 
-  search.addEventListener("input", () => grid.setFilter(search.value));
+  search.addEventListener("input", () => {
+    grid.setFilter(search.value);
+    grid.setHighlight(search.value);
+  });
   addBtn.addEventListener("click", () => grid.addRow());
+
+  // ── 실시간 구독: 다른 사용자가 추가/수정/삭제한 행을 자동 반영 ──
+  let firstSnapshot = true;
+  const unsub = await subscribeMaster(shift, cur.id, (rows) => {
+    if (firstSnapshot) {
+      // 첫 콜백은 이미 initialRows 로 그렸으니 스킵 (불필요한 리렌더 방지)
+      firstSnapshot = false;
+      return;
+    }
+    applyDiff(grid, rows);
+    if (cur.id === "manager" || cur.id === "captain") clearNicknameCache();
+    clearMemberIndex();
+  });
+
+  // 라우터에 cleanup 등록
+  return () => { if (unsub) try { unsub(); } catch {} try { grid.destroy(); } catch {} };
+}
+
+// remote 행 배열을 받아 grid 의 행과 diff 해서 patch/insert/remove.
+// 포커스/미커밋 입력은 grid.js 의 patchRow/removeRow 가 보존함.
+function applyDiff(grid, remoteRows) {
+  const remoteMap = new Map();
+  remoteRows.forEach((r) => { if (r?.id != null) remoteMap.set(String(r.id), r); });
+  const local = grid.getRows();
+  const localMap = new Map();
+  local.forEach((r) => { if (r?.id != null && r.id !== "") localMap.set(String(r.id), r); });
+
+  // 추가/수정
+  for (const [id, r] of remoteMap.entries()) {
+    if (localMap.has(id)) {
+      grid.patchRow(id, r);
+    } else {
+      grid.insertRow(r);
+    }
+  }
+  // 삭제 (로컬에 있고 remote 에 없는 것 — 단, 빈 신규 행 제외)
+  for (const [id, r] of localMap.entries()) {
+    if (!remoteMap.has(id)) grid.removeRow(id);
+  }
 }
 
 // ---------- 중복 제거 ----------
@@ -238,10 +288,11 @@ async function runDedupe(shift, sub, refresh) {
     showToast("중복된 행이 없습니다", "success");
     return;
   }
-  const ok = confirm(
-    `중복 ${dups.length}건을 발견했습니다.\n` +
-    `같은 정보의 행 중 가장 위의 한 건만 남기고 나머지를 삭제할까요?`
-  );
+  const ok = await confirmDialog({
+    title: "중복 정리",
+    message: `중복 ${dups.length}건을 발견했습니다.\n같은 정보의 행 중 가장 위의 한 건만 남기고 나머지를 삭제할까요?`,
+    yes: "삭제", no: "취소",
+  });
   if (!ok) return;
   for (const r of dups) {
     if (r.id) {
@@ -254,6 +305,6 @@ async function runDedupe(shift, sub, refresh) {
 }
 
 function sanitize(row) {
-  const { __errors, ...rest } = row;
+  const { __errors, __dup, __editStartUpdatedAt, ...rest } = row;
   return rest;
 }

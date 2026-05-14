@@ -2010,3 +2010,166 @@ body.tc-fullscreen .tc-board { padding: 12px; }
   .shift-cards { grid-template-columns: 1fr; }
   .snop-wrap { display: none; }
 }
+
+/* =================================================================
+   v2 추가 스타일 — 실시간 협업/UX 개선
+   ================================================================= */
+
+/* ── 연결 상태 칩 ── */
+.conn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #cfd8e3);
+  background: var(--bg-soft, #f4faff);
+  color: var(--text, #0a2540);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, transform .1s;
+  white-space: nowrap;
+}
+.conn-chip:hover { transform: translateY(-1px); }
+.conn-chip[data-state="live"]    { background: #e0f7e9; color: #137a3a; border-color: #b6e6c8; }
+.conn-chip[data-state="local"]   { background: #fff4d6; color: #8a5a00; border-color: #f0d790; }
+.conn-chip[data-state="offline"] { background: #ffe0d0; color: #a23f00; border-color: #f3b790; }
+[data-theme="dark"] .conn-chip {
+  background: #1a2230; border-color: #2f3a4a; color: #d6e4f2;
+}
+[data-theme="dark"] .conn-chip[data-state="live"]    { background: #103a22; color: #6cf3a3; border-color: #1d5b39; }
+[data-theme="dark"] .conn-chip[data-state="local"]   { background: #3a2d10; color: #ffd58a; border-color: #5b491d; }
+[data-theme="dark"] .conn-chip[data-state="offline"] { background: #3a1a10; color: #ff9c6c; border-color: #5b2d1d; }
+
+/* ── 충돌 경고 ── */
+.conflict-detail {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 196, 64, 0.12);
+  border-left: 3px solid #f3b417;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.conflict-detail b { color: #c08400; }
+[data-theme="dark"] .conflict-detail { background: rgba(255, 196, 64, 0.08); }
+[data-theme="dark"] .conflict-detail b { color: #ffd58a; }
+
+/* ── PACK/PICK 검색 입력 ── */
+.pp-search-wrap {
+  padding: 6px 8px 4px;
+}
+.pp-search-input {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #cfd8e3);
+  background: var(--bg, #fff);
+  color: var(--text, #0a2540);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color .15s;
+  box-sizing: border-box;
+}
+.pp-search-input:focus { border-color: #38b6ff; }
+.pp-search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px;
+  background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="%23999" d="M4 4l8 8M4 12l8-8" stroke="%23999" stroke-width="2"/></svg>') no-repeat center;
+  cursor: pointer;
+}
+[data-theme="dark"] .pp-search-input { background: #1a2230; color: #d6e4f2; }
+
+/* 검색 결과 매칭 셀 하이라이트 */
+.grid td.hl-cell {
+  background: rgba(255, 235, 102, 0.25) !important;
+}
+[data-theme="dark"] .grid td.hl-cell {
+  background: rgba(255, 230, 100, 0.18) !important;
+}
+
+/* 검색 결과 0건 — 부드러운 처리 (display:none 이므로 시각상은 안 보이지만 클래스만 표시) */
+.pp-card.search-no-match { display: none !important; }
+
+/* ── 다른 사용자가 편집 중인 행 강조 ── */
+.grid tr.remote-editing {
+  outline: 2px solid #ffb84d;
+  outline-offset: -2px;
+  background: rgba(255, 184, 77, 0.06) !important;
+  position: relative;
+}
+.grid tr.remote-editing::after {
+  content: "👀";
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  font-size: 13px;
+  opacity: 0.7;
+}
+[data-theme="dark"] .grid tr.remote-editing {
+  background: rgba(255, 184, 77, 0.10) !important;
+}
+
+/* ── Placeholder 본문 (RAW 등 준비 중 화면) ── */
+.placeholder p {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-muted, #5e7a99);
+  max-width: 520px;
+  margin: 8px auto 0;
+}
+.placeholder small { font-size: 11.5px; opacity: .75; }
+
+/* ── 설정 모달의 CSV 내보내기 섹션 ── */
+.settings-modal .csv-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+@media (max-width: 760px) {
+  .settings-modal .csv-grid { grid-template-columns: 1fr; }
+}
+.settings-modal .csv-block {
+  border: 1px solid var(--border, #cfd8e3);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-soft, #f9fbfd);
+}
+.settings-modal .csv-block legend {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text, #0a2540);
+  padding: 0 6px;
+}
+.settings-modal .csv-select,
+.settings-modal .csv-date {
+  padding: 5px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--border, #cfd8e3);
+  background: var(--bg, #fff);
+  color: var(--text, #0a2540);
+  font-size: 12.5px;
+  font-family: inherit;
+}
+.settings-modal .csv-date-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.settings-modal .csv-date-row .csv-date { flex: 1; }
+.settings-modal .csv-dash { color: var(--text-muted, #5e7a99); font-size: 12px; }
+.settings-modal .csv-block .btn { margin-top: 2px; }
+[data-theme="dark"] .settings-modal .csv-block { background: #131b27; border-color: #2a3645; }
+[data-theme="dark"] .settings-modal .csv-select,
+[data-theme="dark"] .settings-modal .csv-date { background: #1a2230; color: #d6e4f2; border-color: #2a3645; }
+
+/* ── SNOP 입력 포맷 강조 (천 단위) ── */
+.snop-input { text-align: right; font-variant-numeric: tabular-nums; }
+

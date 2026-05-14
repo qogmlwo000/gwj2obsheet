@@ -1,8 +1,9 @@
 // FLOW 탭 — 4개 서브카테고리(TEAM CAPTAIN / PS / 조퇴 / 신규단기).
 // 쿠코드를 입력하면 DATA 마스터에서 성함/조 등을 자동 채움(read-only).
+// 실시간 구독: subscribeFlow 로 다른 사용자가 추가/수정/삭제한 행을 자동 반영.
 
 import { createGrid } from "../components/grid.js";
-import { listMaster, listFlow, upsertFlow, deleteFlow, upsertMaster } from "../db.js";
+import { listMaster, listFlow, upsertFlow, deleteFlow, upsertMaster, subscribeFlow } from "../db.js";
 import { isAdmin, getSession } from "../auth.js";
 import { showToast } from "../toast.js";
 
@@ -105,6 +106,7 @@ export async function renderFlowTab(root, ctx, params) {
   const masters = await loadMasters(shift);
 
   let grid;
+  let unsubFlow = null;
 
   async function reload() {
     const date = dateInput.value || todayStr();
@@ -116,7 +118,7 @@ export async function renderFlowTab(root, ctx, params) {
         rows,
         canDelete: true, // FLOW는 매일 입력이라 누구나 자기 행 정리 가능
         makeNewRow: () => ({ id: "" }),
-        onCommit: async (row, key, value) => {
+        onCommit: async (row, key, value, prevSnapshot) => {
           const date = dateInput.value || todayStr();
           row.date = date;
           // 쿠코드를 비우면 → 자동 채움 데이터 클리어 + DB에서 행 삭제
@@ -133,6 +135,8 @@ export async function renderFlowTab(root, ctx, params) {
             row.gender = "";
             return { patch: { name: "", team: "", nickname: "", position: "", leaveTime: "", gender: "" } };
           }
+          // 쿠코드 입력 안 됐으면 다른 컬럼은 silent (저장 안 함)
+          if (!String(row.kucode || "").trim()) return {};
           // 쿠코드 변경/입력 시 자동 채움
           if (key === "kucode") {
             const patch = await autofill(cur.id, value, masters);
@@ -177,11 +181,52 @@ export async function renderFlowTab(root, ctx, params) {
     }
   }
 
-  dateInput.addEventListener("change", reload);
-  search.addEventListener("input", () => grid && grid.setFilter(search.value));
+  // 날짜별 실시간 구독을 위한 헬퍼
+  let currentDate = dateInput.value || todayStr();
+  async function ensureSubscription() {
+    if (unsubFlow) { try { unsubFlow(); } catch {} unsubFlow = null; }
+    let firstSnapshot = true;
+    unsubFlow = await subscribeFlow(shift, cur.id, currentDate, (rows) => {
+      if (firstSnapshot) { firstSnapshot = false; return; }
+      if (!grid) return;
+      applyDiff(grid, rows);
+    });
+  }
+
+  dateInput.addEventListener("change", async () => {
+    currentDate = dateInput.value || todayStr();
+    await reload();
+    await ensureSubscription();
+  });
+  search.addEventListener("input", () => {
+    if (!grid) return;
+    grid.setFilter(search.value);
+    grid.setHighlight(search.value);
+  });
   addBtn.addEventListener("click", () => grid && grid.addRow());
 
   await reload();
+  await ensureSubscription();
+
+  return () => {
+    if (unsubFlow) try { unsubFlow(); } catch {}
+    try { grid?.destroy(); } catch {}
+  };
+}
+
+function applyDiff(grid, remoteRows) {
+  const remoteMap = new Map();
+  remoteRows.forEach((r) => { if (r?.id != null) remoteMap.set(String(r.id), r); });
+  const local = grid.getRows();
+  const localMap = new Map();
+  local.forEach((r) => { if (r?.id != null && r.id !== "") localMap.set(String(r.id), r); });
+  for (const [id, r] of remoteMap.entries()) {
+    if (localMap.has(id)) grid.patchRow(id, r);
+    else grid.insertRow(r);
+  }
+  for (const [id] of localMap.entries()) {
+    if (!remoteMap.has(id)) grid.removeRow(id);
+  }
 }
 
 // ---------- helpers ----------
@@ -249,6 +294,6 @@ function todayStr() {
 }
 
 function sanitize(row) {
-  const { __errors, ...rest } = row;
+  const { __errors, __dup, __editStartUpdatedAt, ...rest } = row;
   return rest;
 }

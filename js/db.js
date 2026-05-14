@@ -1,18 +1,22 @@
 // 통합 데이터 액세스 레이어.
 // Firebase가 설정+권한 OK → Firestore. permission-denied 등 실패 시 자동 LocalStorage 폴백.
+//
+// 실시간 구독: subscribeOps / subscribeMaster / subscribeFlow / subscribeShare /
+//             subscribeTCPosition / subscribeDeadlines / subscribeSnop
+// 모두 unsubscribe 함수를 반환. LocalStorage 모드에서는 storage 이벤트로 폴백.
 
 import { firebaseConfig, isFirebaseConfigured } from "./firebase-config.js";
 
 const FB_CONFIGURED = isFirebaseConfigured();
 const LS_PREFIX = "gw2ob:";
 
-// 런타임 플래그 — 한 번이라도 permission-denied 가 나오면 false 로 떨어져
-// 이후 모든 작업이 LocalStorage 폴백으로 동작.
+// 런타임 플래그 — 권한 거부 시 false 로 떨어져 이후 모든 작업이 LocalStorage 폴백.
+// 일시 네트워크 오류는 useFirebase 를 안 떨어뜨리고 해당 호출만 폴백.
 let useFirebase = FB_CONFIGURED;
 let fb = null;
 
 async function ensureFirebase() {
-  if (!useFirebase || fb) return fb;
+  if (!useFirebase || fb?.fs) return fb;
   const { initializeApp, getApps } = await import(
     "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js"
   );
@@ -21,19 +25,19 @@ async function ensureFirebase() {
   );
   const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
   const db = fs.getFirestore(app);
-  fb = { db, fs, app };
+  fb = { ...(fb || {}), db, fs, app };
   return fb;
 }
 
 export async function getFirebaseApp() {
   if (!FB_CONFIGURED) return null;
   // app 인스턴스만 필요할 땐 useFirebase 폴백과 무관하게 RTDB 등에서 사용
-  if (fb) return fb.app;
+  if (fb?.app) return fb.app;
   const { initializeApp, getApps } = await import(
     "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js"
   );
   const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-  if (!fb) fb = { app };
+  fb = { ...(fb || {}), app };
   return app;
 }
 
@@ -44,6 +48,17 @@ function isPermDenied(e) {
          msg.includes("PERMISSION_DENIED") ||
          msg.includes("Missing or insufficient");
 }
+
+// 일시적 오류(unavailable / network / deadline) — useFirebase 는 유지
+function isTransient(e) {
+  const msg = String(e?.message || e?.code || e || "");
+  return msg.includes("unavailable") ||
+         msg.includes("UNAVAILABLE") ||
+         msg.includes("network") ||
+         msg.includes("deadline") ||
+         msg.includes("offline");
+}
+
 async function safe(fbFn, lsFn) {
   if (!useFirebase) return lsFn();
   try {
@@ -52,10 +67,14 @@ async function safe(fbFn, lsFn) {
     if (isPermDenied(e)) {
       useFirebase = false;
       console.warn("[db] Firebase 권한 거부 — LocalStorage 폴백 모드로 전환");
-      window.dispatchEvent(new CustomEvent("gw2ob:fb-fallback"));
+      window.dispatchEvent(new CustomEvent("gw2ob:fb-fallback", { detail: { reason: "permission" } }));
       return lsFn();
     }
-    // 일시적 네트워크 오류면 한 번 더 LS 폴백 후 throw 안 함
+    if (isTransient(e)) {
+      console.warn("[db] Firestore 일시 오류 — 이번 호출만 LocalStorage 폴백:", e?.message || e);
+      window.dispatchEvent(new CustomEvent("gw2ob:fb-transient", { detail: { message: String(e?.message || e) } }));
+      return lsFn();
+    }
     console.warn("[db] Firestore 작업 실패, LocalStorage 폴백:", e?.message || e);
     return lsFn();
   }
@@ -429,19 +448,24 @@ export async function logAudit({ shift, scope, target, action, by, before, after
 }
 
 export async function queryAudit({ scope, target, shift, limit = 50 } = {}) {
+  // Composite index 회피 — 단일 orderBy + limit 만 사용하고 클라이언트에서 필터링.
+  // (where + orderBy 조합은 Firebase composite index 가 필요해 사용자가 콘솔에서 만들어야 함)
   return safe(
     async () => {
       const { db, fs } = await ensureFirebase();
-      let q = fs.collection(db, "audit");
-      const conds = [];
-      if (scope)  conds.push(fs.where("scope", "==", scope));
-      if (target) conds.push(fs.where("target", "==", target));
-      if (shift)  conds.push(fs.where("shift", "==", shift));
-      q = conds.length
-        ? fs.query(q, ...conds, fs.orderBy("ts", "desc"), fs.limit(limit))
-        : fs.query(q, fs.orderBy("ts", "desc"), fs.limit(limit));
+      // 가장 최근 N*5 건을 가져와서 클라이언트 필터링 (인덱스 없이 동작)
+      const fetchLimit = (scope || target || shift) ? Math.min(limit * 10, 500) : limit;
+      const q = fs.query(
+        fs.collection(db, "audit"),
+        fs.orderBy("ts", "desc"),
+        fs.limit(fetchLimit)
+      );
       const snap = await fs.getDocs(q);
-      return snap.docs.map((d) => d.data());
+      let arr = snap.docs.map((d) => d.data());
+      if (scope)  arr = arr.filter((e) => e.scope === scope);
+      if (target) arr = arr.filter((e) => e.target === target);
+      if (shift)  arr = arr.filter((e) => e.shift === shift);
+      return arr.slice(0, limit);
     },
     () => {
       const list = readLS(LS_PREFIX + "audit") || [];
@@ -457,8 +481,19 @@ export async function queryAudit({ scope, target, shift, limit = 50 } = {}) {
 }
 
 // =================================================================
-// 실시간 구독
+// 실시간 구독 — 모두 unsubscribe 함수 반환
 // =================================================================
+//
+// 공통 패턴:
+//   1) Firebase 가능하면 onSnapshot 으로 구독.
+//   2) 실패/폴백 모드면 window storage 이벤트로 LocalStorage 변경 감지.
+//   3) 첫 콜백은 즉시 LS 머지 결과로 호출 (네트워크 지연 가리기).
+
+function makeLsHandler(key, deliver) {
+  const handler = (e) => { if (!e.key || e.key === key) deliver(); };
+  window.addEventListener("storage", handler);
+  return () => window.removeEventListener("storage", handler);
+}
 
 export async function subscribeOps(shift, kind, date, callback) {
   // Firestore 결과 + LS 결과 머지해서 콜백 호출.
@@ -479,27 +514,182 @@ export async function subscribeOps(shift, kind, date, callback) {
         (err) => {
           if (isPermDenied(err)) {
             useFirebase = false;
-            window.dispatchEvent(new CustomEvent("gw2ob:fb-fallback"));
+            window.dispatchEvent(new CustomEvent("gw2ob:fb-fallback", { detail: { reason: "permission" } }));
           }
           // 권한·네트워크 오류 시에도 LS 데이터로 한 번 콜백
           fireMerged([]);
         }
       );
-      // 첫 onSnapshot 도착 전에도 LS 데이터를 즉시 보여줌
       fireMerged([]);
-      return unsub;
+      // LS 변경 (다른 탭에서 LocalStorage 업데이트한 경우)도 감지
+      const unsubLs = makeLsHandler(opsKey(shift, kind), () => fireMerged([]));
+      return () => { try { unsub(); } catch {} unsubLs(); };
     } catch (e) {
       if (isPermDenied(e)) useFirebase = false;
-      // fall through to LS
     }
   }
-  // LocalStorage 전용 모드 — storage 이벤트 (다른 탭 변경)
   fireMerged([]);
-  const handler = (e) => {
-    if (e.key === opsKey(shift, kind)) fireMerged([]);
+  return makeLsHandler(opsKey(shift, kind), () => fireMerged([]));
+}
+
+export async function subscribeMaster(shift, role, callback) {
+  const fireMerged = (fbRows) => {
+    const ls = readLS(masterKey(shift, role)) || [];
+    callback(mergeFsLs(fbRows, ls));
   };
-  window.addEventListener("storage", handler);
-  return () => window.removeEventListener("storage", handler);
+  if (useFirebase) {
+    try {
+      const { db, fs } = await ensureFirebase();
+      const ref = fs.collection(db, "masters", shift, role);
+      const unsub = fs.onSnapshot(
+        ref,
+        (snap) => fireMerged(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+        (err) => { if (isPermDenied(err)) { useFirebase = false; } fireMerged([]); }
+      );
+      fireMerged([]);
+      const unsubLs = makeLsHandler(masterKey(shift, role), () => fireMerged([]));
+      return () => { try { unsub(); } catch {} unsubLs(); };
+    } catch (e) {
+      if (isPermDenied(e)) useFirebase = false;
+    }
+  }
+  fireMerged([]);
+  return makeLsHandler(masterKey(shift, role), () => fireMerged([]));
+}
+
+export async function subscribeFlow(shift, type, date, callback) {
+  const fireMerged = (fbRows) => {
+    const ls = (readLS(flowKey(shift, type)) || []).filter((x) => x.date === date);
+    callback(mergeFsLs(fbRows, ls));
+  };
+  if (useFirebase) {
+    try {
+      const { db, fs } = await ensureFirebase();
+      const ref = fs.collection(db, "flows", shift, type);
+      const q = fs.query(ref, fs.where("date", "==", date));
+      const unsub = fs.onSnapshot(
+        q,
+        (snap) => fireMerged(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+        (err) => { if (isPermDenied(err)) { useFirebase = false; } fireMerged([]); }
+      );
+      fireMerged([]);
+      const unsubLs = makeLsHandler(flowKey(shift, type), () => fireMerged([]));
+      return () => { try { unsub(); } catch {} unsubLs(); };
+    } catch (e) {
+      if (isPermDenied(e)) useFirebase = false;
+    }
+  }
+  fireMerged([]);
+  return makeLsHandler(flowKey(shift, type), () => fireMerged([]));
+}
+
+export async function subscribeShare(shift, kind, callback) {
+  const fireMerged = (fbRows) => {
+    const ls = readLS(shareKey(shift, kind)) || [];
+    callback(mergeFsLs(fbRows, ls));
+  };
+  if (useFirebase) {
+    try {
+      const { db, fs } = await ensureFirebase();
+      const ref = fs.collection(db, "share", shift, kind);
+      const unsub = fs.onSnapshot(
+        ref,
+        (snap) => fireMerged(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+        (err) => { if (isPermDenied(err)) { useFirebase = false; } fireMerged([]); }
+      );
+      fireMerged([]);
+      const unsubLs = makeLsHandler(shareKey(shift, kind), () => fireMerged([]));
+      return () => { try { unsub(); } catch {} unsubLs(); };
+    } catch (e) {
+      if (isPermDenied(e)) useFirebase = false;
+    }
+  }
+  fireMerged([]);
+  return makeLsHandler(shareKey(shift, kind), () => fireMerged([]));
+}
+
+export async function subscribeTCPosition(shift, date, callback) {
+  const tcPosLsKey = LS_PREFIX + `tcpos:${shift}`;
+  const fire = (data) => {
+    if (data) callback(data);
+    else {
+      const map = readLS(tcPosLsKey) || {};
+      callback(map[date] || { positions: {}, managers: [] });
+    }
+  };
+  if (useFirebase) {
+    try {
+      const { db, fs } = await ensureFirebase();
+      const ref = fs.doc(db, "tcpos", `${shift}_${date}`);
+      const unsub = fs.onSnapshot(
+        ref,
+        (snap) => fire(snap.exists() ? snap.data() : null),
+        (err) => { if (isPermDenied(err)) { useFirebase = false; } fire(null); }
+      );
+      fire(null);
+      const unsubLs = makeLsHandler(tcPosLsKey, () => fire(null));
+      return () => { try { unsub(); } catch {} unsubLs(); };
+    } catch (e) {
+      if (isPermDenied(e)) useFirebase = false;
+    }
+  }
+  fire(null);
+  return makeLsHandler(tcPosLsKey, () => fire(null));
+}
+
+export async function subscribeDeadlines(callback) {
+  const lsK = LS_PREFIX + "settings:deadlines";
+  const fire = (items) => {
+    if (items) callback(items);
+    else callback(readLS(lsK) || []);
+  };
+  if (useFirebase) {
+    try {
+      const { db, fs } = await ensureFirebase();
+      const ref = fs.doc(db, "settings", "deadlines");
+      const unsub = fs.onSnapshot(
+        ref,
+        (snap) => fire(snap.exists() ? (snap.data().items || []) : []),
+        (err) => { if (isPermDenied(err)) { useFirebase = false; } fire(null); }
+      );
+      fire(null);
+      const unsubLs = makeLsHandler(lsK, () => fire(null));
+      return () => { try { unsub(); } catch {} unsubLs(); };
+    } catch (e) {
+      if (isPermDenied(e)) useFirebase = false;
+    }
+  }
+  fire(null);
+  return makeLsHandler(lsK, () => fire(null));
+}
+
+export async function subscribeSnop(shift, date, callback) {
+  const lsK = LS_PREFIX + `settings:snop:${shift}`;
+  const fire = (val) => {
+    if (val != null) callback(val);
+    else {
+      const map = readLS(lsK) || {};
+      callback(map[date] || "");
+    }
+  };
+  if (useFirebase) {
+    try {
+      const { db, fs } = await ensureFirebase();
+      const ref = fs.doc(db, "settings", `snop_${shift}_${date}`);
+      const unsub = fs.onSnapshot(
+        ref,
+        (snap) => fire(snap.exists() ? (snap.data().value || "") : ""),
+        (err) => { if (isPermDenied(err)) { useFirebase = false; } fire(null); }
+      );
+      fire(null);
+      const unsubLs = makeLsHandler(lsK, () => fire(null));
+      return () => { try { unsub(); } catch {} unsubLs(); };
+    } catch (e) {
+      if (isPermDenied(e)) useFirebase = false;
+    }
+  }
+  fire(null);
+  return makeLsHandler(lsK, () => fire(null));
 }
 
 // =================================================================
@@ -646,6 +836,10 @@ function readLS(key) {
   } catch (e) { console.warn("readLS failed", key, e); return null; }
 }
 function writeLS(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); }
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    // 같은 탭에서 발생한 setItem 도 다른 곳에 알릴 수 있도록 커스텀 이벤트
+    window.dispatchEvent(new StorageEvent("storage", { key }));
+  }
   catch (e) { console.warn("writeLS failed", key, e); }
 }

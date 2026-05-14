@@ -1,9 +1,10 @@
 // W/S 워터 테이블. PACK / PICK 탭 상단에 펼치기/숨기기로 사용.
 // 컬럼: 쿠코드 / 성함 / 조 / 비고. 자동 채움 + 라벨 표시.
+// 실시간 구독: subscribeOps 로 ws kind 변경 자동 반영.
 
 import { createGrid } from "../components/grid.js";
 import { buildMemberLabel, autofillFromMaster } from "../components/member-label.js";
-import { listOps, upsertOps, deleteOps } from "../db.js";
+import { listOps, upsertOps, deleteOps, subscribeOps } from "../db.js";
 import { openMemberCard } from "../components/member-card.js";
 
 const WS_KIND = (parent) => `${parent}_ws`; // ops kind: pack_ws / pick_ws
@@ -33,17 +34,11 @@ export function renderWSTable({ container, kind, shift, date, memberIndex, onCou
       getLabel: (row) => buildMemberLabel(memberIndex.map.get(String(row.kucode)), row.name),
     },
     { key: "team", label: "조", type: "text", readonly: true, width: "60px" },
-    { key: "note", label: "비고", type: "text", width: "260px" },
+    { key: "note", label: "비고", type: "text" },
   ];
 
   let api = null;
-  let rows = [];
-
-  async function reload() {
-    rows = await listOps(shift, opsKind, date);
-    api.setRows(rows);
-    refreshCount();
-  }
+  let unsub = null;
 
   function refreshCount() {
     const n = api ? api.getRows().filter((r) => r.kucode).length : 0;
@@ -60,7 +55,7 @@ export function renderWSTable({ container, kind, shift, date, memberIndex, onCou
     copyKeys: ["kucode", "name", "team"],
     makeNewRow: () => ({ id: "" }),
     emptyText: "쿠코드를 입력하거나 엑셀에서 붙여넣으세요.",
-    onCommit: async (row, key, value) => {
+    onCommit: async (row, key, value, prevSnapshot) => {
       const ku = String(row.kucode || "").trim();
       // 쿠코드 비우면 → DB에서 삭제 + 다른 컬럼 클리어
       if (key === "kucode" && !ku) {
@@ -73,7 +68,7 @@ export function renderWSTable({ container, kind, shift, date, memberIndex, onCou
         refreshCount();
         return { patch: { name: "", team: "" } };
       }
-      if (!ku) return {};
+      if (!ku) return {}; // 쿠코드 없으면 silent
       if (key === "kucode") {
         const fill = autofillFromMaster(memberIndex, ku);
         if (fill) { row.name = fill.name; row.team = fill.team; }
@@ -97,9 +92,49 @@ export function renderWSTable({ container, kind, shift, date, memberIndex, onCou
 
   addBtn.addEventListener("click", () => api.addRow());
 
-  reload();
+  // 초기 데이터 로드 + 실시간 구독
+  let firstSnapshot = true;
+  (async () => {
+    const initial = await listOps(shift, opsKind, date);
+    api.setRows(initial);
+    refreshCount();
+    unsub = await subscribeOps(shift, opsKind, date, (rows) => {
+      if (firstSnapshot) { firstSnapshot = false; return; }
+      applyDiff(api, rows);
+      refreshCount();
+    });
+  })();
 
-  return { count: () => api ? api.getRows().filter((r) => r.kucode).length : 0, reload };
+  return {
+    count: () => api ? api.getRows().filter((r) => r.kucode).length : 0,
+    reload: async () => {
+      const rows = await listOps(shift, opsKind, date);
+      api.setRows(rows);
+      refreshCount();
+    },
+    destroy: () => {
+      if (unsub) try { unsub(); } catch {}
+      try { api.destroy(); } catch {}
+    },
+  };
 }
 
-function sanitize(row) { const { __errors, ...rest } = row; return rest; }
+function applyDiff(grid, remoteRows) {
+  const remoteMap = new Map();
+  remoteRows.forEach((r) => { if (r?.id != null) remoteMap.set(String(r.id), r); });
+  const local = grid.getRows();
+  const localMap = new Map();
+  local.forEach((r) => { if (r?.id != null && r.id !== "") localMap.set(String(r.id), r); });
+  for (const [id, r] of remoteMap.entries()) {
+    if (localMap.has(id)) grid.patchRow(id, r);
+    else grid.insertRow(r);
+  }
+  for (const [id] of localMap.entries()) {
+    if (!remoteMap.has(id)) grid.removeRow(id);
+  }
+}
+
+function sanitize(row) {
+  const { __errors, __dup, __editStartUpdatedAt, ...rest } = row;
+  return rest;
+}

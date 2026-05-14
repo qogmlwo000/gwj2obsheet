@@ -8,6 +8,12 @@
 // - 행 좌측 체크박스 + Shift+클릭 범위 선택 + Ctrl+C → TSV 복사
 // - column.type === 'label' : 커스텀 라벨 (라벨 빌더로 클래스 + 텍스트 표시, 클릭 시 onLabelClick)
 // - 우클릭 → onRowContextMenu(row, selectedRows, event)
+//
+// 실시간 협업용 API:
+//   patchRow(id, partial)        — 한 행 데이터 갱신 (포커스/미커밋 입력 보존)
+//   insertRow(rowData, atIndex?) — 한 행 삽입 (없는 id 일 때만)
+//   removeRow(id)                — 한 행 제거 (편집 중이 아닐 때)
+//   render() 자체도 포커스/캐럿/미커밋 값 보존
 
 import { openMultiSelect } from "./multi-select.js";
 import { confirmDialog } from "./dialog.js";
@@ -27,10 +33,12 @@ export function createGrid(opts) {
     onLabelClick = null,
     makeNewRow = () => ({}),
     emptyText = null,
+    highlightText = "",
   } = opts;
 
   let rows = initialRows.slice();
   let filterText = "";
+  let hlText = highlightText || "";
   let sortState = { key: null, dir: 1 };
   const selected = new Set();
   let lastClickedIndex = -1;
@@ -114,6 +122,7 @@ export function createGrid(opts) {
   function onCopyKey(e) {
     if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "c") return;
     if (selected.size === 0) return;
+    if (!wrap.isConnected) return; // 다른 탭으로 전환된 그리드는 무시
     const sel = window.getSelection?.()?.toString();
     if (sel && sel.length > 0) return;
     e.preventDefault();
@@ -125,7 +134,42 @@ export function createGrid(opts) {
   function onMouseUp() { dragMode = null; }
   document.addEventListener("mouseup", onMouseUp);
 
+  // ── 포커스 상태 저장/복구 (재렌더 시 사용자 입력 보존) ──
+  function saveFocusState() {
+    const active = document.activeElement;
+    if (!active || !active.matches(".cell-input")) return null;
+    if (!tbody.contains(active)) return null;
+    const tr = active.closest("tr");
+    if (!tr) return null;
+    return {
+      rowId: tr.dataset.rowId || "",
+      colIndex: active.dataset.col,
+      value: active.value,
+      selectionStart: active.selectionStart,
+      selectionEnd: active.selectionEnd,
+    };
+  }
+  function restoreFocusState(state) {
+    if (!state) return;
+    // 1) rowId 로 우선 매칭
+    let tr = null;
+    if (state.rowId) {
+      tr = tbody.querySelector(`tr[data-row-id="${cssEscape(state.rowId)}"]`);
+    }
+    if (!tr) return;
+    const input = tr.querySelector(`.cell-input[data-col="${state.colIndex}"]`);
+    if (!input) return;
+    // 사용자가 입력 중이던 미커밋 값 복원
+    input.value = state.value;
+    input.focus();
+    try {
+      input.setSelectionRange(state.selectionStart, state.selectionEnd);
+    } catch {}
+  }
+
   function render() {
+    const focusState = saveFocusState();
+
     thead.querySelectorAll("th").forEach((th) => {
       const k = th.dataset.colKey;
       const icon = th.querySelector(".sort-icon");
@@ -169,6 +213,8 @@ export function createGrid(opts) {
     } else {
       selBar.style.display = "none";
     }
+
+    restoreFocusState(focusState);
   }
 
   function renderRow(row, vi) {
@@ -236,6 +282,8 @@ export function createGrid(opts) {
       const td = document.createElement("td");
       // 중복 표시: row.__dup === true && col.key === 'kucode'
       if (row.__dup && col.key === "kucode") td.classList.add("dup-cell");
+      // 검색어 하이라이트
+      if (hlText && matchesHl(row, col, hlText)) td.classList.add("hl-cell");
       if (col.type === "multi") {
         td.appendChild(buildMultiCell(row, col));
       } else if (col.type === "label") {
@@ -303,8 +351,9 @@ export function createGrid(opts) {
     input.addEventListener("blur", async () => {
       const v = input.value.trim();
       if ((row[col.key] ?? "") === v) return;
+      const prevSnapshot = { ...row };
       row[col.key] = v;
-      const result = await onCommit(row, col.key, v);
+      const result = await onCommit(row, col.key, v, prevSnapshot);
       if (result?.patch) Object.assign(row, result.patch);
       if (result?.error) {
         row.__errors = { ...(row.__errors || {}), [col.key]: result.error };
@@ -521,6 +570,28 @@ export function createGrid(opts) {
     });
   }
 
+  function matchesHl(row, col, hl) {
+    if (!hl) return false;
+    const t = String(hl).toLowerCase();
+    const v = row[col.key];
+    if (Array.isArray(v)) return v.join(" ").toLowerCase().includes(t);
+    return String(v ?? "").toLowerCase().includes(t);
+  }
+
+  // CSS.escape 폴리필 (구형 브라우저 호환)
+  function cssEscape(s) {
+    if (window.CSS?.escape) return CSS.escape(s);
+    return String(s).replace(/["\\]/g, "\\$&");
+  }
+
+  // 한 행이 입력 중인지 확인 (active input 이 그 행 안에 있음)
+  function isRowFocused(row) {
+    const id = row[rowIdKey];
+    const tr = tbody.querySelector(`tr[data-row-id="${cssEscape(String(id ?? ""))}"]`);
+    if (!tr) return false;
+    return tr.contains(document.activeElement);
+  }
+
   render();
 
   return {
@@ -535,10 +606,63 @@ export function createGrid(opts) {
     getSelected() { return [...selected]; },
     clearSelection() { selected.clear(); render(); },
     setFilter(text) { filterText = text || ""; render(); },
+    setHighlight(text) { hlText = text || ""; render(); },
     refresh() { render(); },
+
+    // ── 실시간 협업: 한 행만 patch (포커스/미커밋 보존) ──
+    patchRow(id, partial) {
+      const key = String(id ?? "");
+      const row = rows.find((r) => String(r[rowIdKey] ?? "") === key);
+      if (!row) return false;
+      // 입력 중인 행은 데이터만 머지 (사용자가 blur 시 합쳐서 commit)
+      if (isRowFocused(row)) {
+        for (const [k, v] of Object.entries(partial || {})) {
+          // 사용자가 직접 입력 중인 컬럼은 절대 덮어쓰지 않음
+          const active = document.activeElement;
+          const ci = active?.dataset?.col;
+          const col = ci != null ? columns[Number(ci)] : null;
+          if (col && col.key === k) continue;
+          row[k] = v;
+        }
+        render();
+        return true;
+      }
+      Object.assign(row, partial || {});
+      render();
+      return true;
+    },
+    insertRow(rowData, atIndex) {
+      const id = rowData?.[rowIdKey];
+      if (id != null) {
+        const exist = rows.find((r) => String(r[rowIdKey] ?? "") === String(id));
+        if (exist) return false; // 이미 있음
+      }
+      if (atIndex == null) rows.push(rowData);
+      else rows.splice(atIndex, 0, rowData);
+      render();
+      return true;
+    },
+    removeRow(id) {
+      const key = String(id ?? "");
+      const idx = rows.findIndex((r) => String(r[rowIdKey] ?? "") === key);
+      if (idx < 0) return false;
+      const row = rows[idx];
+      // 입력 중인 행은 삭제하지 않음 (다음 동기화 때 다시 처리)
+      if (isRowFocused(row)) return false;
+      rows.splice(idx, 1);
+      selected.delete(row);
+      render();
+      return true;
+    },
+    findRow(id) {
+      const key = String(id ?? "");
+      return rows.find((r) => String(r[rowIdKey] ?? "") === key) || null;
+    },
+
     destroy() {
       document.removeEventListener("keydown", onCopyKey);
       document.removeEventListener("mouseup", onMouseUp);
+      try { wrap.remove(); } catch {}
     },
   };
 }

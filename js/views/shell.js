@@ -1,4 +1,4 @@
-// 메인 쉘 — 상단바(브랜드 + 탭 + SNOP[전일 대비] + 시계 + 사용자/⚙/테마/로그아웃) + 본문 라우팅.
+// 메인 쉘 — 상단바(브랜드 + 탭 + SNOP[전일 대비] + 시계 + 연결상태/사용자/⚙/테마/로그아웃) + 본문 라우팅.
 
 import { getSession, isAdmin, clearSession } from "../auth.js";
 import { renderDataTab } from "./tab-data.js";
@@ -11,7 +11,9 @@ import { openSettings } from "./settings.js";
 import { makeClock } from "../components/clock.js";
 import { confirmDialog } from "../components/dialog.js";
 import { makePresenceChip, joinPresence, leavePresence } from "../components/presence.js";
-import { getSnop, setSnop, getYesterdaySnop, logAudit } from "../db.js";
+import { setSnop, getYesterdaySnop, logAudit, subscribeSnop, getStorageMode, isFallbackActive } from "../db.js";
+import { isFirebaseConfigured } from "../firebase-config.js";
+import { showToast } from "../toast.js";
 
 const TABS = [
   { id: "raw",   label: "RAW" },
@@ -26,6 +28,9 @@ const TABS = [
 let bodyHost = null;
 let tabsEl = null;
 let clockEl = null;
+
+// 라우터 정리 — 이전 탭의 cleanup 함수를 다음 라우팅 전에 호출
+let currentTabCleanup = null;
 
 export function renderShell(root, onLogout) {
   root.innerHTML = "";
@@ -73,7 +78,7 @@ export function renderShell(root, onLogout) {
   snopWrap.className = "snop-wrap";
   snopWrap.innerHTML = `
     <span class="snop-label">D0 SNOP</span>
-    <input class="snop-input" type="text" placeholder="-" inputmode="numeric" />
+    <input class="snop-input" type="text" placeholder="-" inputmode="numeric" pattern="[0-9, ]*" maxlength="12" />
     <span class="snop-diff"></span>
   `;
   actions.appendChild(snopWrap);
@@ -103,38 +108,71 @@ export function renderShell(root, onLogout) {
     }
   }
 
-  getSnop(shift, today).then((v) => {
-    snopInput.value = v || "";
-    snopInput.dataset.committed = v || "";
+  // SNOP 실시간 구독 — 다른 매니저가 같은 날짜의 SNOP을 갱신하면 즉시 반영
+  let unsubSnop = null;
+  (async () => {
+    unsubSnop = await subscribeSnop(shift, today, (val) => {
+      // 사용자가 현재 입력 중이면 덮어쓰지 않음
+      if (document.activeElement === snopInput) return;
+      const formatted = formatSnop(val);
+      if (snopInput.value === formatted) return;
+      snopInput.value = formatted;
+      snopInput.dataset.committed = String(val || "");
+      refreshDiff();
+    });
+  })();
+
+  // 입력 중 자동 천 단위 포맷 (커서 위치 유지)
+  snopInput.addEventListener("input", (e) => {
+    const raw = snopInput.value.replace(/[^\d]/g, "");
+    const formatted = raw ? Number(raw).toLocaleString() : "";
+    // 커서 보존 (천 구분 추가/제거로 위치 어긋남 방지)
+    const cursorEnd = snopInput.selectionEnd;
+    const lenBefore = snopInput.value.length;
+    snopInput.value = formatted;
+    const lenAfter = formatted.length;
+    try {
+      const newPos = Math.max(0, cursorEnd + (lenAfter - lenBefore));
+      snopInput.setSelectionRange(newPos, newPos);
+    } catch {}
     refreshDiff();
   });
 
-  snopInput.addEventListener("input", refreshDiff);
-
   snopInput.addEventListener("blur", async () => {
-    const newVal = snopInput.value.trim();
-    const oldVal = snopInput.dataset.committed || "";
-    if (newVal === oldVal) return;
-    const ok = await confirmSnopChange(oldVal, newVal);
-    if (!ok) {
-      snopInput.value = oldVal;
+    const newRaw = String(parseSNOP(snopInput.value) ?? "");
+    const oldRaw = snopInput.dataset.committed || "";
+    if (newRaw === oldRaw) return;
+    if (!validateSnop(newRaw)) {
+      showToast("SNOP은 양의 정수만 입력 가능합니다.", "error");
+      snopInput.value = formatSnop(oldRaw);
       refreshDiff();
       return;
     }
-    await setSnop(shift, today, newVal, session?.nickname || "");
+    const ok = await confirmSnopChange(oldRaw, newRaw);
+    if (!ok) {
+      snopInput.value = formatSnop(oldRaw);
+      refreshDiff();
+      return;
+    }
+    await setSnop(shift, today, newRaw, session?.nickname || "");
     await logAudit({
       shift, scope: "snop", target: today,
-      action: oldVal ? "update" : "create",
+      action: oldRaw ? "update" : "create",
       by: session?.nickname,
-      before: oldVal ? { value: oldVal } : null,
-      after: { value: newVal },
+      before: oldRaw ? { value: oldRaw } : null,
+      after: { value: newRaw },
     });
-    snopInput.dataset.committed = newVal;
+    snopInput.dataset.committed = newRaw;
+    snopInput.value = formatSnop(newRaw);
     refreshDiff();
   });
 
   clockEl = makeClock();
   actions.appendChild(clockEl);
+
+  // 연결 상태 칩
+  const connChip = makeConnectionChip();
+  actions.appendChild(connChip);
 
   // 실시간 접속자 chip (우상단)
   const presenceChip = makePresenceChip();
@@ -164,6 +202,7 @@ export function renderShell(root, onLogout) {
   const back = document.createElement("button");
   back.className = "icon-btn"; back.title = "조 변경"; back.textContent = "🔄";
   back.addEventListener("click", async () => {
+    runCleanup();
     await leavePresence();
     const s = session;
     delete s.shift;
@@ -175,6 +214,8 @@ export function renderShell(root, onLogout) {
   const logout = document.createElement("button");
   logout.className = "icon-btn"; logout.title = "로그아웃"; logout.textContent = "⏻";
   logout.addEventListener("click", async () => {
+    runCleanup();
+    if (unsubSnop) try { unsubSnop(); } catch {}
     await leavePresence();
     clearSession();
     onLogout();
@@ -198,26 +239,48 @@ export function renderShell(root, onLogout) {
   else routeFromHash();
 }
 
-function routeFromHash() {
+function runCleanup() {
+  if (typeof currentTabCleanup === "function") {
+    try { currentTabCleanup(); } catch (e) { console.warn("tab cleanup error", e); }
+  }
+  currentTabCleanup = null;
+}
+
+async function routeFromHash() {
+  runCleanup(); // 이전 탭 정리
+
   const hash = location.hash.replace(/^#\/?/, "");
   const [tab, sub] = hash.split("/");
   const tabId = TABS.find((t) => t.id === tab) ? tab : "data";
   highlightTab(tabId);
   const ctx = { shift: getSession()?.shift };
   const params = { sub };
-  if (tabId === "data")  return renderDataTab(bodyHost, ctx, params);
-  if (tabId === "flow")  return renderFlowTab(bodyHost, ctx, params);
-  if (tabId === "pack")  return renderPackTab(bodyHost, ctx, params);
-  if (tabId === "pick")  return renderPickTab(bodyHost, ctx, params);
-  if (tabId === "tcpos") return renderTCPosTab(bodyHost, ctx, params);
-  if (tabId === "share") return renderShareTab(bodyHost, ctx, params);
-  return renderPlaceholder(tabId);
+
+  let result;
+  if (tabId === "data")       result = renderDataTab(bodyHost, ctx, params);
+  else if (tabId === "flow")  result = renderFlowTab(bodyHost, ctx, params);
+  else if (tabId === "pack")  result = renderPackTab(bodyHost, ctx, params);
+  else if (tabId === "pick")  result = renderPickTab(bodyHost, ctx, params);
+  else if (tabId === "tcpos") result = renderTCPosTab(bodyHost, ctx, params);
+  else if (tabId === "share") result = renderShareTab(bodyHost, ctx, params);
+  else { renderPlaceholder(tabId); return; }
+
+  // 탭이 Promise 를 반환하면 await, cleanup 함수면 보관
+  if (result && typeof result.then === "function") {
+    try { currentTabCleanup = await result; } catch (e) { console.warn("tab render error", e); }
+  } else if (typeof result === "function") {
+    currentTabCleanup = result;
+  }
 }
 
 function renderPlaceholder(tabId) {
   bodyHost.innerHTML = "";
   const labels = {
-    raw: { icon: "🗂", title: "RAW", desc: "원본 데이터 영역 — 다음 단계에서 채워집니다." },
+    raw: {
+      icon: "🚧",
+      title: "RAW 데이터",
+      desc: "준비 중 — 향후 PACK/PICK HTP(시간당 처리량) 집계를 위한 원본 데이터 영역이 추가됩니다.<br><br><small>완성 시: 일자별 작업 시작/종료 시각, 처리 건수 자동 산출, 사원 카드의 평균 HTP 통계 연동.</small>",
+    },
   };
   const info = labels[tabId] || { icon: "🚧", title: tabId, desc: "준비 중" };
   const ph = document.createElement("div");
@@ -251,6 +314,46 @@ function makeInlineThemeToggle() {
   return btn;
 }
 
+// ── 연결 상태 칩 (🟢 실시간 / 🟡 로컬 전용 / 🟠 오프라인) ──
+function makeConnectionChip() {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "conn-chip";
+  chip.title = "연결 상태";
+
+  function refresh() {
+    let state, label, title;
+    if (!isFirebaseConfigured()) {
+      state = "local"; label = "🟡 로컬 전용";
+      title = "Firebase 미설정 — LocalStorage 만 사용. 다른 매니저와 실시간 동기화 안 됨.";
+    } else if (!navigator.onLine) {
+      state = "offline"; label = "🟠 오프라인";
+      title = "네트워크 끊김 — 로컬 저장 후 복구 시 자동 동기화 시도.";
+    } else if (isFallbackActive()) {
+      state = "local"; label = "🟡 로컬 전용";
+      title = "Firebase 보안 규칙 잠김 — README 의 규칙 안내를 확인해주세요.";
+    } else {
+      state = "live"; label = "🟢 실시간";
+      title = "Firebase 정상 — 다른 매니저와 실시간 동기화 중.";
+    }
+    chip.dataset.state = state;
+    chip.textContent = label;
+    chip.title = title;
+  }
+
+  refresh();
+  window.addEventListener("online", refresh);
+  window.addEventListener("offline", refresh);
+  window.addEventListener("gw2ob:fb-fallback", refresh);
+  window.addEventListener("gw2ob:fb-transient", refresh);
+
+  chip.addEventListener("click", () => {
+    showToast(chip.title, chip.dataset.state === "live" ? "success" : "info");
+  });
+
+  return chip;
+}
+
 async function confirmSnopChange(oldVal, newVal) {
   return confirmDialog({
     title: "SNOP 수정 확인",
@@ -259,12 +362,12 @@ async function confirmSnopChange(oldVal, newVal) {
       <div class="snop-diff-detail">
         <div class="snop-cell old">
           <div class="snop-cell-label">기존 SNOP</div>
-          <div class="snop-cell-value">${escape(oldVal || "—")}</div>
+          <div class="snop-cell-value">${escape(formatSnop(oldVal) || "—")}</div>
         </div>
         <div class="snop-arrow">→</div>
         <div class="snop-cell new">
           <div class="snop-cell-label">변경 SNOP</div>
-          <div class="snop-cell-value">${escape(newVal || "—")}</div>
+          <div class="snop-cell-value">${escape(formatSnop(newVal) || "—")}</div>
         </div>
       </div>
     `,
@@ -274,8 +377,21 @@ async function confirmSnopChange(oldVal, newVal) {
 
 function parseSNOP(s) {
   if (s == null || s === "") return null;
-  const n = Number(String(s).replace(/[, ]/g, ""));
+  const cleaned = String(s).replace(/[, ]/g, "");
+  if (!/^\d+$/.test(cleaned)) return null;
+  const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
+}
+
+function validateSnop(s) {
+  if (s === "" || s == null) return true; // 비우는 건 허용
+  return /^\d+$/.test(String(s));
+}
+
+function formatSnop(v) {
+  const n = parseSNOP(v);
+  if (n == null) return "";
+  return n.toLocaleString();
 }
 
 function todayStr() {
@@ -284,7 +400,7 @@ function todayStr() {
 }
 
 function escape(s) {
-  return String(s).replace(/[&<>"]/g, (c) =>
+  return String(s ?? "").replace(/[&<>"]/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
   );
 }

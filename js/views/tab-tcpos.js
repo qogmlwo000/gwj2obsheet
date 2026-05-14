@@ -1,8 +1,9 @@
 // TC 포지션 탭 — 시업 전 한 화면에 보는 Team Captain 포지션 보드.
 // 매니저 / PACK 7 / PICK 7 / 부가 업무 6종 (색상 칩).
 // 각 포지션: "닉네임 - 성함" 카드 + 부가 업무 배경색.
+// 실시간 구독: subscribeTCPosition 로 다른 사용자 변경 자동 반영.
 
-import { listMaster, getTCPosition, setTCPosition, logAudit } from "../db.js";
+import { listMaster, getTCPosition, setTCPosition, logAudit, subscribeTCPosition } from "../db.js";
 import { isAdmin, getSession } from "../auth.js";
 import { showToast } from "../toast.js";
 import { openContextMenu, closeContextMenu } from "../components/context-menu.js";
@@ -94,6 +95,9 @@ export async function renderTCPosTab(root, ctx) {
 
   let data = await getTCPosition(shift, dateInput.value);
   if (!data || !data.positions) data = { positions: {}, managers: [] };
+
+  let unsubTC = null;
+  let pickerOpen = false; // 모달 열려있는 동안 외부 변경으로 깜빡임 방지
 
   function renderBoard() {
     board.innerHTML = "";
@@ -204,9 +208,9 @@ export async function renderTCPosTab(root, ctx) {
   // 포지션 → TC + 부가 업무 선택 모달
   function openPositionPicker(anchor, slot, kind) {
     closeContextMenu();
+    pickerOpen = true;
     const cur = data.positions[slot.id] || { kucode: "", extras: [] };
 
-    // 모달 형태로 띄움
     const root = document.getElementById("modal-root");
     root.innerHTML = "";
     const backdrop = document.createElement("div");
@@ -279,7 +283,7 @@ export async function renderTCPosTab(root, ctx) {
     });
 
     // 닫기 / 저장
-    const close = () => backdrop.remove();
+    const close = () => { pickerOpen = false; backdrop.remove(); };
     modal.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", close));
     backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
     modal.querySelector("[data-save]").addEventListener("click", async () => {
@@ -302,13 +306,28 @@ export async function renderTCPosTab(root, ctx) {
     await setTCPosition(shift, dateInput.value, data);
   }
 
+  // 실시간 구독 셋업 — 날짜 변경 시 재구독
+  async function ensureSubscription() {
+    if (unsubTC) { try { unsubTC(); } catch {} unsubTC = null; }
+    let firstSnapshot = true;
+    unsubTC = await subscribeTCPosition(shift, dateInput.value, (remote) => {
+      if (firstSnapshot) { firstSnapshot = false; return; }
+      if (pickerOpen) return; // 편집 모달이 열려있으면 깜빡임 방지
+      if (!remote || !remote.positions) return;
+      data = remote;
+      renderBoard();
+    });
+  }
+
   dateInput.addEventListener("change", async () => {
     data = await getTCPosition(shift, dateInput.value);
     if (!data || !data.positions) data = { positions: {}, managers: [] };
     renderBoard();
+    await ensureSubscription();
   });
 
   renderBoard();
+  await ensureSubscription();
 
   // ───── TC 보드 PNG 캡처 ─────
   async function captureBoard() {
@@ -339,6 +358,8 @@ export async function renderTCPosTab(root, ctx) {
       captureBtn.innerHTML = "📸 캡처 (PNG)";
     }
   }
+
+  return () => { if (unsubTC) try { unsubTC(); } catch {} };
 }
 
 // html2canvas 동적 로드 (CDN)

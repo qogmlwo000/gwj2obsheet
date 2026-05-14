@@ -1,6 +1,6 @@
 # GWJ2 OB PDA 일지
 
-쿠팡 GW2 OB팀 PDA 일지 — DAY조 / SWING조 운영 기록.
+쿠팡 GW2 OB팀 PDA 일지 — DAY조 / SWING조 운영 기록 · **여러 매니저·캡틴이 실시간으로 동시 사용**하는 협업 도구.
 
 ---
 
@@ -29,7 +29,7 @@
 - Realtime Database: 현재 접속자 추적 + 입력 중 인디케이터
 
 **두 데이터베이스의 규칙을 모두 풀어야 모든 기능이 정상 작동합니다.**
-규칙이 잠겨 있어도 단일 PC LocalStorage 폴백으로 동작은 하지만, 다른 매니저와의 실시간 동기화가 안 됩니다.
+규칙이 잠겨 있으면 상단바 칩이 🟡 **로컬 전용** 으로 표시되며, LocalStorage 폴백으로 동작은 하지만 다른 매니저와의 실시간 동기화가 안 됩니다.
 
 ### Firestore 규칙
 [콘솔 > Firestore > 규칙](https://console.firebase.google.com/project/gwj2-ob-staff-sheet/firestore/rules) :
@@ -63,7 +63,23 @@ service cloud.firestore {
 
 > 사내망 한정 운영 기준 임시 규칙. 추후 Firebase Auth + 닉네임/역할 기반으로 강화 가능.
 
-규칙이 잠겨 있으면 화면 우상단 토스트로 빨간 안내가 뜹니다. 규칙을 푼 뒤 페이지를 새로고침하세요.
+---
+
+## 🔄 실시간 동기화
+
+상단바 우측의 **연결 상태 칩** 으로 현재 상태를 한눈에 확인:
+
+| 표시 | 의미 |
+|---|---|
+| 🟢 **실시간** | Firebase 정상 — 다른 매니저와 실시간 동기화 중 |
+| 🟡 **로컬 전용** | Firebase 미설정 또는 권한 규칙 잠김 — 본인 PC에만 저장 |
+| 🟠 **오프라인** | 네트워크 끊김 — 로컬 저장 후 복구 시 자동 동기화 |
+
+### 동시 편집 동작
+- 다른 매니저가 같은 카드를 입력 중이면 카드 헤더에 **"OO 입력중..."** 배지가 보입니다.
+- 다른 매니저가 같은 행을 수정 중이면 그 행 가장자리가 🟧 노란색으로 강조되고 👀 표시.
+- 같은 셀을 두 사람이 거의 동시에 저장하려 하면 **충돌 경고 다이얼로그** 가 떠서 덮어쓸지 / 다른 사람 값을 유지할지 선택할 수 있습니다.
+- 입력 중인 셀의 포커스는 다른 사람의 변경에 의해 사라지지 않습니다.
 
 ---
 
@@ -88,6 +104,7 @@ service cloud.firestore {
 | 엑셀에서 다중 셀 붙여넣기 | 시작 셀 클릭 후 `Ctrl + V` |
 | 선택된 행 복사 (TSV) | 행 체크 후 `Ctrl + C` |
 | 행 다중 선택 (범위) | 첫 행 클릭 → 끝 행 `Shift + 클릭` |
+| PACK/PICK 카드 검색 | 좌측 사이드의 🔎 검색창에 쿠코드/이름 입력 (ESC 로 초기화) |
 
 PACK/PICK 의 행 우클릭 시:
 - `Pack >` 호버 → 라인 선택해서 이동
@@ -101,7 +118,19 @@ PACK/PICK 의 행 우클릭 시:
 | 역할 | 가능한 작업 |
 |---|---|
 | 일반 사용자 (등록 매니저·캡틴) | 모든 탭 입력 / 수정 |
-| `Bennett` (관리자) | 위 + 행 삭제 + 카테고리 비우기 + DAY/SWING 백업·복원·초기화 + 마감시간 관리 + TC 포지션 편집 + 사원 특이사항 |
+| `Bennett` (관리자) | 위 + 행 삭제 + 카테고리 비우기 + DAY/SWING 백업·복원·초기화 + 마감시간 관리 + TC 포지션 편집 + 사원 특이사항 + **CSV 내보내기** |
+
+---
+
+## 📊 CSV / Excel 내보내기
+
+관리자(Bennett) 의 ⚙ 설정 모달에서:
+- **DATA** — 카테고리(MANAGER/CAPTAIN/PS/PERM/TEMP)별 마스터 내보내기
+- **FLOW** — 날짜 범위 + 카테고리(캡틴/PS/조퇴/신규단기)별 내보내기
+- **PACK / PICK** — 날짜 범위 + kind(pack/pick/pack_ws/pick_ws)별 내보내기
+- **공유** — 현재 시업 집결지 보드 내보내기
+
+모든 CSV 파일은 UTF-8 BOM 으로 저장되어 Excel 에서 한글이 깨지지 않습니다.
 
 ---
 
@@ -119,33 +148,35 @@ GW2OB PDA Sheet/
     ├── firebase-config.js  ← Firebase 키
     ├── app.js              ← 부트스트랩 + 라우팅
     ├── auth.js             ← 닉네임 인증
-    ├── db.js               ← Firestore + LocalStorage 폴백
+    ├── db.js               ← Firestore + LocalStorage 폴백 + subscribe* 실시간 구독
+    ├── export.js           ← CSV/TSV 내보내기 헬퍼
     ├── theme.js            ← 라이트/다크 토글
     ├── character.js        ← 로그인 화면 고양이 SVG
     ├── toast.js
     ├── components/
-    │   ├── grid.js              ← 편집 가능 그리드 (정렬, 붙여넣기, 라벨, 중복)
+    │   ├── grid.js              ← 편집 가능 그리드 (포커스 보존 patchRow/insertRow/removeRow)
     │   ├── multi-select.js
-    │   ├── pack-pick-grid.js    ← PACK/PICK 라인·층 카드 스트립
+    │   ├── pack-pick-grid.js    ← PACK/PICK 라인·층 카드 스트립 (SSOT, 검색, 충돌 경고)
     │   ├── member-label.js      ← 사원 라벨 색상 규칙
     │   ├── member-card.js       ← 사원 정보 카드 모달
     │   ├── context-menu.js      ← 우클릭 메뉴 (서브메뉴 지원)
     │   ├── dialog.js            ← 사이트 톤 confirm/alert
     │   ├── audit-panel.js       ← 우하단 수정 이력 패널
     │   ├── presence.js          ← 실시간 접속자 (RTDB)
-    │   └── clock.js             ← 시계 + 마감시간 효과
+    │   ├── editing-presence.js  ← 입력 중 인디케이터 (RTDB · path 충돌 방지)
+    │   └── clock.js             ← 시계 + 마감시간 (다음 날 안내 포함)
     └── views/
         ├── login.js
         ├── shift-pick.js
-        ├── shell.js          ← 상단바 + 라우팅
-        ├── settings.js       ← Bennett 설정 모달
-        ├── tab-data.js       ← DATA (마스터)
-        ├── tab-flow.js       ← FLOW (일자 기록)
+        ├── shell.js          ← 상단바 + 라우팅 + 연결상태 칩 + SNOP 검증
+        ├── settings.js       ← Bennett 설정 모달 (CSV 내보내기 포함)
+        ├── tab-data.js       ← DATA (마스터) + subscribeMaster
+        ├── tab-flow.js       ← FLOW (일자 기록) + subscribeFlow
         ├── tab-pack.js       ← PACK (라인별)
         ├── tab-pick.js       ← PICK (층별)
-        ├── tab-ws.js         ← W/S 워터
-        ├── tab-share.js      ← 공유 (계약직 시업 집결지)
-        └── tab-tcpos.js      ← TC 포지션 (시업 보고용 보드)
+        ├── tab-ws.js         ← W/S 워터 + subscribeOps(W/S kind)
+        ├── tab-share.js      ← 공유 (계약직 시업 집결지) + subscribeShare
+        └── tab-tcpos.js      ← TC 포지션 (시업 보고용 보드) + subscribeTCPosition
 ```
 
 ---
@@ -162,13 +193,43 @@ specialNotes/{kucode}                  # 사원 특이사항
 settings/deadlines                     # 마감시간 목록
 settings/snop_{shift}_{date}           # 일자별 SNOP
 
-audit/{auto}                           # 모든 변경 이력
+audit/{auto}                           # 모든 변경 이력 — ts 단일 인덱스로 조회 (composite 불필요)
 ```
 
 ## Realtime Database
 
 ```
 /presence/{sessionId} = { nickname, role, shift, joinedAt, lastActive }
+/editing/{escapedScope}/{sessionId} = { nickname, ts, rowId }
 ```
 
 `onDisconnect()` 으로 탭이 닫히면 자동 정리됩니다.
+
+> `escapedScope` 는 점·슬래시·공백 등 RTDB 금지 문자를 고유 토큰으로 치환해서
+> `"오토백 1.2"` 와 `"오토백 12"` 가 충돌하지 않도록 처리.
+
+---
+
+## 🧯 알려진 제한
+
+- **Firebase Auth 미사용** — 닉네임 화이트리스트만으로 입장 제어. 사내망 한정 운영 전제.
+- **Audit 인덱스 자동 생성** — `queryAudit` 는 `ts` 단일 인덱스만 사용해 composite index 가 필요 없습니다. (필터링은 클라이언트에서)
+- **RAW 탭은 준비 중** — PACK/PICK HTP(시간당 처리량) 집계용 원본 데이터 영역. 향후 추가 예정.
+- **모바일 반응형은 일부만** — 큰 화면(PC) 기준으로 설계. 태블릿 가로 모드 권장.
+
+---
+
+## 🔧 변경 로그 — v2 (실시간 협업 안정화)
+
+- 🔴 PACK/PICK 외 모든 탭에도 실시간 구독 추가 (DATA / FLOW / 공유 / TC 포지션 / W/S)
+- 🔴 다른 사용자 변경 시 **포커스/미커밋 입력 보존** (patchRow/insertRow/removeRow)
+- 🔴 PACK 그룹명과 공유 시트 그룹명 SSOT 통일 ("메뉴얼 멀티" 표준화 + 옛 데이터 alias)
+- 🔴 Editing presence path 충돌 버그 수정 ("오토백 1.2" ↔ "오토백 12")
+- 🟢 연결 상태 칩 (실시간/로컬 전용/오프라인) 추가
+- 🟢 충돌 경고 다이얼로그 (같은 셀 동시 편집)
+- 🟢 PACK/PICK 카드별 검색 + 매칭 셀 하이라이트
+- 🟢 CSV/Excel 내보내기 (UTF-8 BOM)
+- 🟢 다음 날 마감시간 자동 안내
+- 🟢 SNOP 천 단위 자동 포맷 + 검증
+- 🟢 탭 전환 시 리스너/구독 자동 cleanup (메모리 누수 방지)
+- 🟢 Audit 쿼리 단일 인덱스화 (composite index 없이 동작)

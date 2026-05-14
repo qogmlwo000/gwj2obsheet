@@ -1,24 +1,28 @@
 // 공유 탭 — 계약직 시업 집결지(시업 시 모일 곳) 안내.
 // PACK 테이블과 PICK 테이블 두 가지. DAY/SWING 분리.
 // 입력은 그리드(쿠코드/이름/그룹/비고), 출력은 그룹×이름 보드.
+// 실시간 구독: subscribeShare 로 다른 사용자가 추가/수정/삭제한 행을 자동 반영.
 
 import { createGrid } from "../components/grid.js";
-import { listShare, upsertShare, deleteShare } from "../db.js";
+import { listShare, upsertShare, deleteShare, subscribeShare } from "../db.js";
 import { buildMemberIndex, autofillFromMaster, buildMemberLabel } from "../components/member-label.js";
 import { openMemberCard } from "../components/member-card.js";
 import { isAdmin } from "../auth.js";
+import {
+  PACK_GROUPS_DEF, PICK_GROUPS_DEF, normalizePackGroup,
+} from "../components/pack-pick-grid.js";
 
+// share 보드 그룹 — PACK 은 PACK_GROUPS_DEF, PICK 은 PICK_GROUPS_DEF 와 동일 라벨/순서 (SSOT)
 const SHARE_DEFS = {
   pack: {
     label: "PACK 시업 집결지",
     icon: "📦",
-    groups: ["오토백 1.2", "오토백 2.5", "오토백 4.0", "오토백 RTPB", "오토백 멀티",
-             "메뉴얼팩", "ACE 8호", "메뉴얼팩 멀티", "NPB", "ACE"],
+    groups: PACK_GROUPS_DEF.map((g) => g.id),
   },
   pick: {
     label: "PICK 시업 집결지",
     icon: "🛒",
-    groups: ["6.1F", "6.3F", "AGV (7.1F)", "7.2F", "7.3F", "8F"],
+    groups: PICK_GROUPS_DEF.map((g) => g.id),
   },
 };
 
@@ -102,10 +106,11 @@ export async function renderShareTab(root, ctx, params) {
     boardHost.innerHTML = "";
     const grouped = new Map();
     def.groups.forEach((g) => grouped.set(g, []));
-    // 미지정/매핑 안 되는 그룹은 한 곳에 모아 별도 처리
     const stray = [];
     rows.forEach((r) => {
-      const g = r.group || "";
+      // PACK: 옛 라벨("메뉴얼팩 멀티") 을 새 라벨("메뉴얼 멀티") 로 정규화
+      const rawG = r.group || "";
+      const g = subId === "pack" ? normalizePackGroup(rawG) : rawG;
       if (grouped.has(g)) grouped.get(g).push(r);
       else if (g) {
         // PICK: "6.1F · 싱귤" 같은 옛 데이터가 있으면 sub 떼고 매칭 시도
@@ -170,9 +175,13 @@ export async function renderShareTab(root, ctx, params) {
     selectable: true,
     copyKeys: ["kucode", "name", "team", "group"],
     makeNewRow: () => ({ id: "" }),
-    onCommit: async (row, key, value) => {
+    onCommit: async (row, key, value, prevSnapshot) => {
       const ku = String(row.kucode || "").trim();
-      if (!ku) return { error: key === "kucode" ? "쿠코드를 입력하세요." : undefined };
+      // 쿠코드 없으면: kucode 컬럼일 때만 에러, 다른 컬럼은 silent
+      if (!ku) {
+        if (key === "kucode" && value) return { error: "쿠코드를 입력하세요." };
+        return {}; // 비어있고 다른 컬럼 입력 → 저장 안 함
+      }
       if (key === "kucode") {
         const fill = autofillFromMaster(memberIndex, ku);
         if (fill) { row.name = fill.name; row.team = fill.team; }
@@ -201,6 +210,37 @@ export async function renderShareTab(root, ctx, params) {
 
   refreshTotal();
   renderBoard();
+
+  // ── 실시간 구독 ──
+  let firstSnapshot = true;
+  const unsub = await subscribeShare(shift, subId, (newRows) => {
+    if (firstSnapshot) { firstSnapshot = false; return; }
+    // 로컬 rows 와 grid 양쪽 모두 갱신
+    rows = newRows;
+    applyDiffToGrid(grid, newRows);
+    refreshTotal();
+    renderBoard();
+  });
+
+  return () => {
+    if (unsub) try { unsub(); } catch {}
+    try { grid.destroy(); } catch {}
+  };
+}
+
+function applyDiffToGrid(grid, remoteRows) {
+  const remoteMap = new Map();
+  remoteRows.forEach((r) => { if (r?.id != null) remoteMap.set(String(r.id), r); });
+  const local = grid.getRows();
+  const localMap = new Map();
+  local.forEach((r) => { if (r?.id != null && r.id !== "") localMap.set(String(r.id), r); });
+  for (const [id, r] of remoteMap.entries()) {
+    if (localMap.has(id)) grid.patchRow(id, r);
+    else grid.insertRow(r);
+  }
+  for (const [id] of localMap.entries()) {
+    if (!remoteMap.has(id)) grid.removeRow(id);
+  }
 }
 
 function pickVariant(kind, group) {
@@ -219,10 +259,13 @@ function pickVariant(kind, group) {
   return "manual";
 }
 
-function sanitize(row) { const { __errors, ...rest } = row; return rest; }
+function sanitize(row) {
+  const { __errors, __dup, __editStartUpdatedAt, ...rest } = row;
+  return rest;
+}
 
 function escape(s) {
-  return String(s).replace(/[&<>"]/g, (c) =>
+  return String(s ?? "").replace(/[&<>"]/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
   );
 }

@@ -1,7 +1,9 @@
-// 상단바 시계: 현재시각(초 단위) + 가장 가까운 마감시간(D-1h부터 긴급 효과).
-// 마감시간은 settings 컬렉션에서 가져오며 Bennett 설정에서 추가/삭제.
+// 상단바 시계: 현재시각(초 단위) + 가장 가까운 마감시간.
+// - 모든 마감이 지난 후에는 "내일 ⏰ 가장 빠른 마감" 안내
+// - 마감 후 30분 이내까지만 "지남" 강조
+// - subscribeDeadlines 로 Bennett 가 마감을 추가/삭제하면 즉시 반영
 
-import { getDeadlines } from "../db.js";
+import { getDeadlines, subscribeDeadlines } from "../db.js";
 
 export function makeClock() {
   const wrap = document.createElement("div");
@@ -15,10 +17,7 @@ export function makeClock() {
 
   let deadlines = [];
   let timer = null;
-
-  async function loadDl() {
-    try { deadlines = await getDeadlines(); } catch { deadlines = []; }
-  }
+  let unsubDl = null;
 
   function tick() {
     const now = new Date();
@@ -27,58 +26,83 @@ export function makeClock() {
     const ss = String(now.getSeconds()).padStart(2, "0");
     time.textContent = `${hh}:${mm}:${ss}`;
 
-    // 가장 가까운 미래의 마감시간
-    const target = nextDeadline(deadlines, now);
     wrap.classList.remove("urgent", "very-urgent", "passed");
-    if (target) {
-      const diff = target.date - now;
-      const minutes = diff / 60000;
-      dl.textContent = `${target.label} ${formatDiff(diff)}`;
-      if (diff <= 0) wrap.classList.add("passed");
-      else if (minutes <= 15) wrap.classList.add("very-urgent");
-      else if (minutes <= 60) wrap.classList.add("urgent");
-    } else {
+    const target = nextDeadline(deadlines, now);
+    if (!target) {
       dl.textContent = "마감시간 미설정";
+      return;
     }
+    const diff = target.date - now;
+    const minutes = diff / 60000;
+    const prefix = target.nextDay ? "내일 " : "";
+    dl.textContent = `${prefix}${target.label} ${formatDiff(diff)}`;
+    if (target.nextDay) return; // 내일 마감 → 강조 효과 없음
+    if (diff <= 0) {
+      // 마감 후 30분 이내까지만 passed 효과
+      if (-diff <= 30 * 60 * 1000) wrap.classList.add("passed");
+    } else if (minutes <= 15) wrap.classList.add("very-urgent");
+    else if (minutes <= 60) wrap.classList.add("urgent");
   }
 
-  loadDl().then(tick);
+  (async () => {
+    try { deadlines = await getDeadlines(); } catch { deadlines = []; }
+    tick();
+    // 실시간 구독: 다른 사용자(Bennett) 가 변경하면 즉시 반영
+    unsubDl = await subscribeDeadlines((items) => {
+      deadlines = items || [];
+      tick();
+    });
+  })();
+
   timer = setInterval(tick, 1000);
 
-  // 외부에서 마감시간 변경 시 호출
-  wrap.refresh = async () => { await loadDl(); tick(); };
-  wrap.dispose = () => clearInterval(timer);
+  wrap.refresh = async () => {
+    try { deadlines = await getDeadlines(); } catch {}
+    tick();
+  };
+  wrap.dispose = () => {
+    clearInterval(timer);
+    if (unsubDl) try { unsubDl(); } catch {}
+  };
 
   return wrap;
 }
 
 function nextDeadline(deadlines, now) {
   if (!deadlines || deadlines.length === 0) return null;
-  let best = null;
-  for (const d of deadlines) {
-    const date = parseTimeToday(d.time, now);
-    if (!date) continue;
-    if (!best || date < best.date) best = { ...d, date };
-    // 이미 지난 마감은 다음날 같은 시각 후보로 두진 않음 (단순화)
-  }
-  // 가장 가까운 미래 마감
+
+  // 1) 오늘 안에 미래 마감이 있으면 그 중 가장 빠른 것
   const future = deadlines
-    .map((d) => ({ ...d, date: parseTimeToday(d.time, now) }))
+    .map((d) => ({ ...d, date: parseTimeToday(d.time, now), nextDay: false }))
     .filter((d) => d.date && d.date > now)
     .sort((a, b) => a.date - b.date);
   if (future.length) return future[0];
-  // 모두 지나갔다면 가장 마지막에 지난 것 반환 (passed 효과)
+
+  // 2) 오늘 모두 지났다면 - 마지막에 지난 게 30분 이내면 그것을 passed 로 보여줌
   const past = deadlines
-    .map((d) => ({ ...d, date: parseTimeToday(d.time, now) }))
+    .map((d) => ({ ...d, date: parseTimeToday(d.time, now), nextDay: false }))
     .filter((d) => d.date && d.date <= now)
     .sort((a, b) => b.date - a.date);
-  return past[0] || null;
+  if (past.length && (now - past[0].date) <= 30 * 60 * 1000) return past[0];
+
+  // 3) 그 외에는 내일 가장 빠른 마감 안내
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const next = deadlines
+    .map((d) => ({ ...d, date: parseTimeAt(d.time, tomorrow), nextDay: true }))
+    .filter((d) => d.date)
+    .sort((a, b) => a.date - b.date);
+  return next[0] || null;
 }
 
 function parseTimeToday(timeStr, now) {
+  return parseTimeAt(timeStr, now);
+}
+
+function parseTimeAt(timeStr, base) {
   const m = String(timeStr || "").match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return null;
-  const d = new Date(now);
+  const d = new Date(base);
   d.setHours(Number(m[1]), Number(m[2]), 0, 0);
   return d;
 }
