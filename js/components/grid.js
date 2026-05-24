@@ -293,7 +293,9 @@ export function createGrid(opts) {
         (info.classes || []).forEach((c) => td.classList.add(c));
         td.appendChild(buildLabelCell(row, col, info));
       } else {
-        td.appendChild(buildTextCell(row, col, vi, ci));
+        const inp = buildTextCell(row, col, vi, ci);
+        td.appendChild(inp);
+        if (inp.__datalist) td.appendChild(inp.__datalist);
       }
       tr.appendChild(td);
     });
@@ -344,6 +346,29 @@ export function createGrid(opts) {
     if (row.__errors && row.__errors[col.key]) {
       input.classList.add("error");
       input.title = row.__errors[col.key];
+    }
+
+    // 옵션 자동완성 — col.getOptions(row) 가 배열을 반환하면 datalist 부착
+    if (typeof col.getOptions === "function") {
+      try {
+        const opts = col.getOptions(row) || [];
+        if (opts.length) {
+          const listId = `dl-${col.key}-${vi}-${Math.random().toString(36).slice(2, 7)}`;
+          const dl = document.createElement("datalist");
+          dl.id = listId;
+          opts.slice(0, 200).forEach((o) => {
+            const opt = document.createElement("option");
+            if (typeof o === "string") { opt.value = o; }
+            else { opt.value = o.value; if (o.label) opt.label = o.label; }
+            dl.appendChild(opt);
+          });
+          input.setAttribute("list", listId);
+          input.classList.add("has-options");
+          input.parentNode?.appendChild(dl); // 부모가 없으면 아래서 cell td 에 추가됨
+          // 안전을 위해 input 옆에 보관
+          input.__datalist = dl;
+        }
+      } catch (e) { console.warn("getOptions failed", col.key, e); }
     }
 
     input.addEventListener("keydown", (e) => onCellKeydown(e, vi, ci));

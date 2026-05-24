@@ -395,6 +395,106 @@ export async function getYesterdaySnop(shift, today) {
   return getSnop(shift, y);
 }
 
+// =================================================================
+// 인원 현황 대시보드 (per-shift, per-date)
+// =================================================================
+
+const DEFAULT_HEADCOUNT = {
+  tc:      { plan: 0, actual: 0 },
+  perm:    { plan: 0, actual: 0 },
+  temp:    { plan: 0, actual: 0 },
+  newbie:  { plan: 0, actual: 0 },
+};
+
+export async function getHeadcount(shift, date) {
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const snap = await fs.getDoc(fs.doc(db, "headcount", `${shift}_${date}`));
+      return snap.exists() ? snap.data() : { ...DEFAULT_HEADCOUNT };
+    },
+    () => {
+      const map = readLS(LS_PREFIX + `headcount:${shift}`) || {};
+      return map[date] || { ...DEFAULT_HEADCOUNT };
+    }
+  );
+}
+
+export async function setHeadcount(shift, date, data, by = "") {
+  const lsWrite = () => {
+    const map = readLS(LS_PREFIX + `headcount:${shift}`) || {};
+    map[date] = data;
+    writeLS(LS_PREFIX + `headcount:${shift}`, map);
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await fs.setDoc(fs.doc(db, "headcount", `${shift}_${date}`), {
+        ...data, updatedAt: Date.now(), updatedBy: by, shift, date,
+      });
+      lsWrite();
+    },
+    lsWrite
+  );
+}
+
+export async function listHeadcountRange(shift, fromDate, toDate) {
+  // LS — map[date] 형태에서 범위 필터
+  const lsAll = readLS(LS_PREFIX + `headcount:${shift}`) || {};
+  const lsRows = Object.entries(lsAll)
+    .filter(([d]) => d >= fromDate && d <= toDate)
+    .map(([d, v]) => ({ date: d, shift, ...v, id: `${shift}_${d}` }));
+
+  const fb = await safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const q = fs.query(
+        fs.collection(db, "headcount"),
+        fs.where("shift", "==", shift),
+        fs.where("date", ">=", fromDate),
+        fs.where("date", "<=", toDate),
+      );
+      const snap = await fs.getDocs(q);
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    () => []
+  );
+  // Merge with LS — Firestore 가 권위적, LS 보조
+  const map = new Map();
+  for (const r of lsRows) map.set(r.date, r);
+  for (const r of fb) if (r.date) map.set(r.date, r);
+  return [...map.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export async function subscribeHeadcount(shift, date, callback) {
+  const lsK = LS_PREFIX + `headcount:${shift}`;
+  const fire = (data) => {
+    if (data) callback(data);
+    else {
+      const map = readLS(lsK) || {};
+      callback(map[date] || { ...DEFAULT_HEADCOUNT });
+    }
+  };
+  if (useFirebase) {
+    try {
+      const { db, fs } = await ensureFirebase();
+      const ref = fs.doc(db, "headcount", `${shift}_${date}`);
+      const unsub = fs.onSnapshot(
+        ref,
+        (snap) => fire(snap.exists() ? snap.data() : null),
+        (err) => { if (isPermDenied(err)) { useFirebase = false; } fire(null); }
+      );
+      fire(null);
+      const unsubLs = makeLsHandler(lsK, () => fire(null));
+      return () => { try { unsub(); } catch {} unsubLs(); };
+    } catch (e) {
+      if (isPermDenied(e)) useFirebase = false;
+    }
+  }
+  fire(null);
+  return makeLsHandler(lsK, () => fire(null));
+}
+
 export async function getSpecialNote(kucode) {
   return safe(
     async () => {

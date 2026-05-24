@@ -360,6 +360,7 @@ export function renderPackPickStrip(opts) {
             name: row.name || "",
             team: row.team || "",
             group: group.id,
+            date,
           });
         } catch (e) { console.warn("share sync failed", e); }
 
@@ -652,7 +653,7 @@ export function renderPackPickStrip(opts) {
           try {
             await upsertShare(shift, targetKind, ku, {
               kucode: ku, name: newRow.name || "", team: newRow.team || "",
-              group: targetGroup,
+              group: targetGroup, date,
             });
           } catch {}
         }
@@ -666,7 +667,7 @@ export function renderPackPickStrip(opts) {
           try {
             await upsertShare(shift, targetKind, ku, {
               kucode: ku, name: row.name || "", team: row.team || "",
-              group: targetGroup,
+              group: targetGroup, date,
             });
           } catch {}
         }

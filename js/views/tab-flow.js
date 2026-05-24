@@ -3,9 +3,10 @@
 // 실시간 구독: subscribeFlow 로 다른 사용자가 추가/수정/삭제한 행을 자동 반영.
 
 import { createGrid } from "../components/grid.js";
-import { listMaster, listFlow, upsertFlow, deleteFlow, upsertMaster, subscribeFlow } from "../db.js";
+import { listMaster, listFlow, upsertFlow, deleteFlow, upsertMaster, subscribeFlow, getTCPosition } from "../db.js";
 import { isAdmin, getSession } from "../auth.js";
 import { showToast } from "../toast.js";
+import { confirmDialog } from "../components/dialog.js";
 
 const SUBS = [
   { id: "captain", label: "TEAM CAPTAIN" },
@@ -14,31 +15,74 @@ const SUBS = [
   { id: "newTemp", label: "신규단기" },
 ];
 
-const COLUMNS = {
-  captain: [
-    { key: "kucode",   label: "쿠코드", type: "text" },
-    { key: "name",     label: "성함",   type: "text", readonly: true },
-    { key: "nickname", label: "닉네임", type: "text", readonly: true },
-    { key: "position", label: "포지션(비고)", type: "text" },
-  ],
-  ps: [
-    { key: "kucode",   label: "쿠코드", type: "text" },
-    { key: "name",     label: "성함",   type: "text", readonly: true },
-    { key: "team",     label: "조",     type: "text", readonly: true, width: "80px" },
-    { key: "position", label: "포지션(비고)", type: "text" },
-  ],
-  leave: [
-    { key: "kucode",    label: "쿠코드", type: "text" },
-    { key: "name",      label: "성함",   type: "text", readonly: true },
-    { key: "team",      label: "조",     type: "text", readonly: true, width: "100px" },
-    { key: "leaveTime", label: "조퇴시간(비고)", type: "text" },
-  ],
-  newTemp: [
-    { key: "kucode", label: "쿠코드", type: "text" },
-    { key: "name",   label: "성함",   type: "text" },
-    { key: "gender", label: "성별(비고)", type: "text" },
-  ],
-};
+// TC 포지션 탭의 포지션 라벨 풀 (FLOW > 캡틴/PS 의 포지션 자동완성용)
+const TC_POSITION_LABELS = [
+  "Manager 1", "Manager 2", "Manager 3",
+  "Pack Main", "Auto Main", "Auto Sub", "Manual Main", "Manual Sub", "ACE", "Direct (Pack)",
+  "Pick Main", "6F", "7.2F", "7.3F", "8F", "AGV", "Direct (Pick)",
+  "노쇼파악", "TBM", "PPR", "Live Worker", "근태 공유", "IT 장비 관리",
+];
+
+function makeColumns(masters) {
+  // 캡틴 마스터에서 쿠코드 + 닉네임 옵션 빌드
+  const captainOpts = [];
+  if (masters?.captainByKu) {
+    for (const [ku, m] of masters.captainByKu.entries()) {
+      const lbl = `${ku}${m?.nickname ? ` · ${m.nickname}` : ""}${m?.name ? ` (${m.name})` : ""}`;
+      captainOpts.push({ value: ku, label: lbl });
+    }
+    captainOpts.sort((a, b) => a.value.localeCompare(b.value));
+  }
+  // PS / Perm / Temp 풀
+  const psOpts = optsFromMaster(masters?.psByKu);
+  const allOpts = [
+    ...psOpts,
+    ...optsFromMaster(masters?.permByKu),
+    ...optsFromMaster(masters?.tempByKu),
+  ];
+  // 중복 제거
+  const seen = new Set();
+  const allUniq = allOpts.filter((o) => {
+    if (seen.has(o.value)) return false;
+    seen.add(o.value); return true;
+  });
+
+  return {
+    captain: [
+      { key: "kucode",   label: "쿠코드", type: "text", getOptions: () => captainOpts },
+      { key: "name",     label: "성함",   type: "text", readonly: true },
+      { key: "nickname", label: "닉네임", type: "text", readonly: true },
+      { key: "position", label: "포지션(비고)", type: "text", getOptions: () => TC_POSITION_LABELS },
+    ],
+    ps: [
+      { key: "kucode",   label: "쿠코드", type: "text", getOptions: () => psOpts },
+      { key: "name",     label: "성함",   type: "text", readonly: true },
+      { key: "team",     label: "조",     type: "text", readonly: true, width: "80px" },
+      { key: "position", label: "포지션(비고)", type: "text", getOptions: () => TC_POSITION_LABELS },
+    ],
+    leave: [
+      { key: "kucode",    label: "쿠코드", type: "text", getOptions: () => allUniq },
+      { key: "name",      label: "성함",   type: "text", readonly: true },
+      { key: "team",      label: "조",     type: "text", readonly: true, width: "100px" },
+      { key: "leaveTime", label: "조퇴시간(비고)", type: "text" },
+    ],
+    newTemp: [
+      { key: "kucode", label: "쿠코드", type: "text" },
+      { key: "name",   label: "성함",   type: "text" },
+      { key: "gender", label: "성별(비고)", type: "text", getOptions: () => ["남", "여"] },
+    ],
+  };
+}
+
+function optsFromMaster(m) {
+  if (!m) return [];
+  const out = [];
+  for (const [ku, v] of m.entries()) {
+    const lbl = `${ku}${v?.name ? ` · ${v.name}` : ""}${v?.team ? ` (${v.team})` : ""}`;
+    out.push({ value: ku, label: lbl });
+  }
+  return out;
+}
 
 export async function renderFlowTab(root, ctx, params) {
   root.innerHTML = "";
@@ -69,10 +113,10 @@ export async function renderFlowTab(root, ctx, params) {
 
   // 본문
   const body = document.createElement("div");
-  body.className = "tab-body";
+  body.className = "tab-body flow-body";
 
   const actionBar = document.createElement("div");
-  actionBar.className = "action-bar";
+  actionBar.className = "action-bar flow-action-bar";
 
   const h2 = document.createElement("h2");
   h2.textContent = `${cur.label} (${shift === "day" ? "DAY ☀️" : "SWING 🌙"})`;
@@ -94,6 +138,12 @@ export async function renderFlowTab(root, ctx, params) {
   addBtn.innerHTML = "+ 행 추가";
   actionBar.appendChild(addBtn);
 
+  const clearAllBtn = document.createElement("button");
+  clearAllBtn.className = "btn danger";
+  clearAllBtn.innerHTML = "🗑 전체 삭제";
+  clearAllBtn.title = `이 날짜의 ${cur.label} 항목을 모두 삭제합니다`;
+  actionBar.appendChild(clearAllBtn);
+
   body.appendChild(actionBar);
 
   const gridHost = document.createElement("div");
@@ -104,6 +154,7 @@ export async function renderFlowTab(root, ctx, params) {
 
   // 마스터 인덱스 로드 (자동 채움용)
   const masters = await loadMasters(shift);
+  const COLUMNS = makeColumns(masters);
 
   let grid;
   let unsubFlow = null;
@@ -204,6 +255,30 @@ export async function renderFlowTab(root, ctx, params) {
     grid.setHighlight(search.value);
   });
   addBtn.addEventListener("click", () => grid && grid.addRow());
+
+  clearAllBtn.addEventListener("click", async () => {
+    const date = dateInput.value || todayStr();
+    const allRows = await listFlow(shift, cur.id, date);
+    const real = allRows.filter((r) => r.id);
+    if (real.length === 0) {
+      showToast("삭제할 항목이 없습니다", "info");
+      return;
+    }
+    const ok = await confirmDialog({
+      title: `${cur.label} 전체 삭제`,
+      danger: true,
+      message: `${date} ${cur.label} 항목 ${real.length}개를 모두 삭제할까요?`,
+      detail: `<div class="conflict-detail">이 동작은 되돌릴 수 없습니다.<br>${shift === "day" ? "DAY ☀️" : "SWING 🌙"} · ${cur.label}</div>`,
+      yes: "전체 삭제", no: "취소",
+    });
+    if (!ok) return;
+    let n = 0;
+    for (const r of real) {
+      try { await deleteFlow(shift, cur.id, r.id); n++; } catch {}
+    }
+    await reload();
+    showToast(`${n}개 삭제 완료`, "success");
+  });
 
   await reload();
   await ensureSubscription();

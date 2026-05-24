@@ -8,6 +8,8 @@ import { listShare, upsertShare, deleteShare, subscribeShare } from "../db.js";
 import { buildMemberIndex, autofillFromMaster, buildMemberLabel } from "../components/member-label.js";
 import { openMemberCard } from "../components/member-card.js";
 import { isAdmin } from "../auth.js";
+import { confirmDialog } from "../components/dialog.js";
+import { showToast } from "../toast.js";
 import {
   PACK_GROUPS_DEF, PICK_GROUPS_DEF, normalizePackGroup,
 } from "../components/pack-pick-grid.js";
@@ -70,10 +72,31 @@ export async function renderShareTab(root, ctx, params) {
   h2.innerHTML = `${def.icon} ${def.label} <span class="muted">(${shift === "day" ? "DAY ☀️" : "SWING 🌙"})</span>`;
   head.appendChild(h2);
 
+  // 날짜 필터 (오늘만 / 전체)
+  const dateInput = document.createElement("input");
+  dateInput.type = "date";
+  dateInput.className = "date-input";
+  dateInput.value = todayStr();
+  dateInput.title = "이 날짜의 집결지만 표시";
+  head.appendChild(dateInput);
+
+  const scopeBtn = document.createElement("button");
+  scopeBtn.className = "btn ghost";
+  scopeBtn.textContent = "📅 오늘만 보기";
+  scopeBtn.title = "전체/오늘 토글";
+  let scopeToday = true;
+  head.appendChild(scopeBtn);
+
   const totalChip = document.createElement("span");
   totalChip.className = "total-chip";
   totalChip.textContent = "총 0명";
   head.appendChild(totalChip);
+
+  const cleanupBtn = document.createElement("button");
+  cleanupBtn.className = "btn ghost";
+  cleanupBtn.textContent = "🧹 지난 데이터 정리";
+  cleanupBtn.title = "이 날짜 이전의 항목을 모두 삭제합니다";
+  head.appendChild(cleanupBtn);
 
   const toggleBtn = document.createElement("button");
   toggleBtn.className = "btn ghost";
@@ -98,16 +121,43 @@ export async function renderShareTab(root, ctx, params) {
 
   let rows = await listShare(shift, subId);
 
+  function visibleRows() {
+    if (!scopeToday) return rows;
+    const d = dateInput.value || todayStr();
+    // date 필드가 없으면 (옛 데이터) 함께 표시되지 않도록 — 단, 사용자가 직접 입력한 항목도 살릴 수 있게
+    // "오늘만 보기" 켜져 있으면 정확히 그 날짜만, 그렇지 않으면 전체
+    return rows.filter((r) => (r.date || "") === d);
+  }
+
   function refreshTotal() {
-    totalChip.textContent = `총 ${rows.filter((r) => r.kucode).length}명`;
+    const list = visibleRows();
+    const tag = scopeToday ? "오늘" : "전체";
+    totalChip.textContent = `${tag} ${list.filter((r) => r.kucode).length}명`;
   }
 
   function renderBoard() {
     boardHost.innerHTML = "";
+    const list = visibleRows();
+
+    // 비어 있으면 안내 표시
+    if (list.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "share-board-empty";
+      const dateLbl = dateInput.value || todayStr();
+      empty.innerHTML = scopeToday
+        ? `<div class="share-empty-icon">📭</div>
+           <div class="share-empty-title">${escape(dateLbl)} 집결지 데이터가 없습니다</div>
+           <div class="share-empty-sub">PACK/PICK 탭에서 인원을 입력하면 자동으로 채워집니다.<br>지난 날짜의 데이터를 보려면 위의 <b>전체 보기</b> 버튼을 누르세요.</div>`
+        : `<div class="share-empty-icon">📭</div>
+           <div class="share-empty-title">공유 시트가 비어있습니다</div>`;
+      boardHost.appendChild(empty);
+      return;
+    }
+
     const grouped = new Map();
     def.groups.forEach((g) => grouped.set(g, []));
     const stray = [];
-    rows.forEach((r) => {
+    list.forEach((r) => {
       // PACK: 옛 라벨("메뉴얼팩 멀티") 을 새 라벨("메뉴얼 멀티") 로 정규화
       const rawG = r.group || "";
       const g = subId === "pack" ? normalizePackGroup(rawG) : rawG;
@@ -187,6 +237,7 @@ export async function renderShareTab(root, ctx, params) {
         if (fill) { row.name = fill.name; row.team = fill.team; }
         else { return { error: "DATA에 없는 쿠코드입니다." }; }
       }
+      row.date = row.date || (dateInput.value || todayStr());
       const id = await upsertShare(shift, subId, row.id, sanitize(row));
       row.id = id;
       const idx = rows.findIndex((r) => r.id === row.id);
@@ -206,6 +257,48 @@ export async function renderShareTab(root, ctx, params) {
       const m = memberIndex.map.get(String(row.kucode));
       if (m) openMemberCard(m, { shift });
     },
+  });
+
+  // 날짜/스코프 변경 이벤트
+  dateInput.addEventListener("change", () => {
+    refreshTotal();
+    renderBoard();
+  });
+  scopeBtn.addEventListener("click", () => {
+    scopeToday = !scopeToday;
+    scopeBtn.textContent = scopeToday ? "📅 오늘만 보기" : "🌐 전체 보기";
+    dateInput.disabled = !scopeToday;
+    dateInput.style.opacity = scopeToday ? "" : "0.4";
+    refreshTotal();
+    renderBoard();
+  });
+
+  // 지난 데이터 정리 — 선택한 날짜 이전 항목 모두 삭제
+  cleanupBtn.addEventListener("click", async () => {
+    const cutoff = dateInput.value || todayStr();
+    const stale = rows.filter((r) => r.date && r.date < cutoff);
+    const noDate = rows.filter((r) => !r.date);
+    const total = stale.length + noDate.length;
+    if (total === 0) {
+      showToast("정리할 항목이 없습니다", "info");
+      return;
+    }
+    const ok = await confirmDialog({
+      title: "지난 데이터 정리",
+      danger: true,
+      message: `${escape(cutoff)} 이전 항목과 날짜 없는 항목 (${total}개)을 삭제할까요?`,
+      detail: `<div class="conflict-detail">현재 ${subId.toUpperCase()} 공유 시트에서 모두 사라집니다.</div>`,
+      yes: "삭제", no: "취소",
+    });
+    if (!ok) return;
+    let n = 0;
+    for (const r of [...stale, ...noDate]) {
+      try { await deleteShare(shift, subId, r.id); n++; } catch {}
+    }
+    rows = await listShare(shift, subId);
+    refreshTotal();
+    renderBoard();
+    showToast(`${n}개 정리 완료`, "success");
   });
 
   refreshTotal();
@@ -257,6 +350,11 @@ function pickVariant(kind, group) {
   }
   if (group?.includes("오토백")) return "autobag";
   return "manual";
+}
+
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function sanitize(row) {

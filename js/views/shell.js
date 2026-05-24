@@ -7,6 +7,7 @@ import { renderPackTab } from "./tab-pack.js";
 import { renderPickTab } from "./tab-pick.js";
 import { renderShareTab } from "./tab-share.js";
 import { renderTCPosTab } from "./tab-tcpos.js";
+import { renderHeadcountTab } from "./tab-headcount.js";
 import { openSettings } from "./settings.js";
 import { makeClock } from "../components/clock.js";
 import { confirmDialog } from "../components/dialog.js";
@@ -16,13 +17,14 @@ import { isFirebaseConfigured } from "../firebase-config.js";
 import { showToast } from "../toast.js";
 
 const TABS = [
-  { id: "raw",   label: "RAW" },
-  { id: "data",  label: "DATA" },
-  { id: "flow",  label: "FLOW" },
-  { id: "pack",  label: "PACK" },
-  { id: "pick",  label: "PICK" },
-  { id: "tcpos", label: "TC 포지션" },
-  { id: "share", label: "공유" },
+  { id: "raw",       label: "RAW" },
+  { id: "data",      label: "DATA" },
+  { id: "headcount", label: "인원현황" },
+  { id: "flow",      label: "FLOW" },
+  { id: "pack",      label: "PACK" },
+  { id: "pick",      label: "PICK" },
+  { id: "tcpos",     label: "TC 포지션" },
+  { id: "share",     label: "공유" },
 ];
 
 let bodyHost = null;
@@ -257,12 +259,13 @@ async function routeFromHash() {
   const params = { sub };
 
   let result;
-  if (tabId === "data")       result = renderDataTab(bodyHost, ctx, params);
-  else if (tabId === "flow")  result = renderFlowTab(bodyHost, ctx, params);
-  else if (tabId === "pack")  result = renderPackTab(bodyHost, ctx, params);
-  else if (tabId === "pick")  result = renderPickTab(bodyHost, ctx, params);
-  else if (tabId === "tcpos") result = renderTCPosTab(bodyHost, ctx, params);
-  else if (tabId === "share") result = renderShareTab(bodyHost, ctx, params);
+  if (tabId === "data")            result = renderDataTab(bodyHost, ctx, params);
+  else if (tabId === "headcount")  result = renderHeadcountTab(bodyHost, ctx, params);
+  else if (tabId === "flow")       result = renderFlowTab(bodyHost, ctx, params);
+  else if (tabId === "pack")       result = renderPackTab(bodyHost, ctx, params);
+  else if (tabId === "pick")       result = renderPickTab(bodyHost, ctx, params);
+  else if (tabId === "tcpos")      result = renderTCPosTab(bodyHost, ctx, params);
+  else if (tabId === "share")      result = renderShareTab(bodyHost, ctx, params);
   else { renderPlaceholder(tabId); return; }
 
   // 탭이 Promise 를 반환하면 await, cleanup 함수면 보관
