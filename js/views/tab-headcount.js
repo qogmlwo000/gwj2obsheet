@@ -1,10 +1,9 @@
 // 인원 현황 대시보드 — 독립 탭.
 // FLOW 와 분리되어 깔끔하게 단독 뷰. 캡처·복사 버튼으로 이미지 클립보드 복사 가능.
 
-import { renderHeadcountDashboard, computeActualFromSources } from "../components/headcount-dashboard.js";
+import { renderHeadcountDashboard } from "../components/headcount-dashboard.js";
 import { renderHeadcountChart } from "../components/headcount-chart.js";
-import { getHeadcount, setHeadcount } from "../db.js";
-import { getSession } from "../auth.js";
+import { confirmDialog } from "../components/dialog.js";
 import { showToast } from "../toast.js";
 
 export async function renderHeadcountTab(root, ctx) {
@@ -41,12 +40,19 @@ export async function renderHeadcountTab(root, ctx) {
   });
   head.appendChild(todayBtn);
 
-  // 자동 동기화 — TC 포지션/PACK/PICK/FLOW>신규단기 에서 Actual 값 가져오기
+  // 새로고침 — Actual 값 재계산 (자동 동기화는 백그라운드로 동작)
   const syncBtn = document.createElement("button");
   syncBtn.className = "btn ghost";
-  syncBtn.innerHTML = "🔄 자동 동기화";
-  syncBtn.title = "TC 포지션 · PACK · PICK · FLOW>신규단기 에서 Actual 값을 가져옵니다";
+  syncBtn.innerHTML = "🔁 새로고침";
+  syncBtn.title = "TC 포지션 · PACK · PICK · FLOW>신규단기 에서 Actual 값을 즉시 다시 가져옵니다 (자동 동기화는 항상 활성)";
   head.appendChild(syncBtn);
+
+  // 초기화 — 이 날짜의 모든 입력값 (Plan + Actual) 을 0 으로 리셋
+  const resetBtn = document.createElement("button");
+  resetBtn.className = "btn danger";
+  resetBtn.innerHTML = "🧹 초기화";
+  resetBtn.title = "이 날짜의 인원 현황을 모두 0 으로 초기화합니다";
+  head.appendChild(resetBtn);
 
   const captureBtn = document.createElement("button");
   captureBtn.className = "btn primary hc-capture-btn";
@@ -78,6 +84,7 @@ export async function renderHeadcountTab(root, ctx) {
     container: dashBox,
     shift,
     getDate: () => dateInput.value || todayStr(),
+    onActualChanged: () => hcChart?.refresh(),
   });
 
   const hcChart = renderHeadcountChart({
@@ -90,35 +97,42 @@ export async function renderHeadcountTab(root, ctx) {
     hcChart.refresh();
   });
 
-  // 자동 동기화 핸들러
+  // 새로고침 — 즉시 재계산
   syncBtn.addEventListener("click", async () => {
     syncBtn.disabled = true;
     const original = syncBtn.innerHTML;
-    syncBtn.innerHTML = "⏳ 동기화 중...";
+    syncBtn.innerHTML = "⏳ 새로고침 중...";
     try {
-      const date = dateInput.value || todayStr();
-      const computed = await computeActualFromSources(shift, date);
-      const current = await getHeadcount(shift, date);
-      // Actual 만 덮어쓰고 Plan 은 유지
-      const merged = {
-        tc:     { plan: current.tc?.plan     || 0, actual: computed.tc.actual },
-        perm:   { plan: current.perm?.plan   || 0, actual: computed.perm.actual },
-        temp:   { plan: current.temp?.plan   || 0, actual: computed.temp.actual },
-        newbie: { plan: current.newbie?.plan || 0, actual: computed.newbie.actual },
-      };
-      await setHeadcount(shift, date, merged, getSession()?.nickname || "");
-      hcDash.setDate(); // 다시 로드
-      hcChart.refresh();
-      showToast(
-        `✓ 동기화 완료 — T/C:${computed.tc.actual} Perm:${computed.perm.actual} Temp:${computed.temp.actual} Newbie:${computed.newbie.actual}`,
-        "success"
-      );
+      hcDash.resync();
+      // 짧은 시간 후 차트도 갱신
+      setTimeout(() => hcChart?.refresh(), 600);
+      showToast("✓ Actual 값을 다시 가져왔습니다", "success");
     } catch (e) {
-      console.error("auto-sync failed", e);
-      showToast("동기화 실패: " + (e.message || e), "error");
+      showToast("새로고침 실패: " + (e.message || e), "error");
     } finally {
-      syncBtn.disabled = false;
-      syncBtn.innerHTML = original;
+      setTimeout(() => {
+        syncBtn.disabled = false;
+        syncBtn.innerHTML = original;
+      }, 400);
+    }
+  });
+
+  // 초기화 — 모든 값 0 으로 리셋 (Plan + Actual)
+  resetBtn.addEventListener("click", async () => {
+    const ok = await confirmDialog({
+      title: "인원 현황 초기화",
+      danger: true,
+      message: `${dateInput.value || todayStr()} 의 인원 현황을 모두 0 으로 초기화할까요?`,
+      detail: `<div class="conflict-detail">Plan, Actual 8개 값이 모두 0 이 됩니다.<br>이 동작은 되돌릴 수 없습니다.<br>(자동 동기화는 계속 활성 — 잠시 후 Actual 은 다른 탭에서 다시 계산됩니다)</div>`,
+      yes: "초기화", no: "취소",
+    });
+    if (!ok) return;
+    try {
+      await hcDash.resetAll();
+      hcChart?.refresh();
+      showToast("✓ 초기화 완료", "success");
+    } catch (e) {
+      showToast("초기화 실패: " + (e.message || e), "error");
     }
   });
 

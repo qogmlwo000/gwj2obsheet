@@ -2367,17 +2367,82 @@ body.tc-fullscreen .tc-board { padding: 12px; }
 [data-theme="dark"] .hc-dot { stroke: #161b22 !important; }
 [data-theme="dark"] .hc-grid-line { opacity: .35; }
 
-/* ── 셀 자동완성 표시 (datalist 부착) ── */
-.cell-input.has-options {
-  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%, var(--text-muted) 53%, transparent 53%);
+/* ── 커스텀 자동완성 드롭다운 — 사이트 디자인 토큰 적용 ── */
+.cell-input.has-ac {
+  /* SVG chevron 아이콘 — 깔끔하고 미세 */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 3.5 L5 6.5 L8 3.5' fill='none' stroke='%235e7a99' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
   background-position: right 6px center;
-  background-size: 8px 8px;
+  background-size: 10px 10px;
   background-repeat: no-repeat;
-  padding-right: 18px;
+  padding-right: 20px;
 }
-.cell-input.has-options:focus {
-  background-image: linear-gradient(45deg, transparent 50%, var(--accent) 50%, var(--accent) 53%, transparent 53%);
+[data-theme="dark"] .cell-input.has-ac {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 3.5 L5 6.5 L8 3.5' fill='none' stroke='%238b949e' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
 }
+.cell-input.has-ac:focus {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 3.5 L5 6.5 L8 3.5' fill='none' stroke='%2338b6ff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+}
+
+/* 드롭다운 메뉴 */
+.ac-menu {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  animation: ac-fadein .12s ease-out;
+  font-family: inherit;
+}
+@keyframes ac-fadein {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ac-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  transition: background .1s, color .1s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ac-item:hover,
+.ac-item.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ac-item .ac-v {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  flex-shrink: 0;
+}
+.ac-item .ac-l {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ac-item:hover .ac-l,
+.ac-item.active .ac-l { color: var(--accent); opacity: .85; }
+.ac-menu::-webkit-scrollbar { width: 8px; }
+.ac-menu::-webkit-scrollbar-track { background: transparent; }
+.ac-menu::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+.ac-menu::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 .hc-dash {
   width: 100%;
   border-radius: 16px;

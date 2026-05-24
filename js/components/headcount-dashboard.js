@@ -5,6 +5,7 @@
 import {
   getHeadcount, setHeadcount, subscribeHeadcount,
   listOps, listFlow, listMaster, getTCPosition,
+  subscribeOps, subscribeFlow, subscribeTCPosition,
 } from "../db.js";
 import { getSession } from "../auth.js";
 
@@ -17,16 +18,19 @@ const ROWS = [
 
 const WEEK_KO = ["일", "월", "화", "수", "목", "금", "토"];
 
-export function renderHeadcountDashboard({ container, shift, getDate }) {
+export function renderHeadcountDashboard({ container, shift, getDate, onActualChanged }) {
   const root = document.createElement("section");
   root.className = "hc-dash";
   container.appendChild(root);
 
   let state = blankState();
   let unsub = null;
+  let unsubPack = null, unsubPick = null, unsubNewTemp = null, unsubTC = null;
   let saving = false;
   let saveTimer = null;
   let currentDate = getDate();
+  let autoSyncTimer = null;
+  let lastComputedActual = null; // 마지막 자동계산 값 (수동 입력 vs 자동 비교용)
 
   function blankState() {
     return {
@@ -206,6 +210,7 @@ export function renderHeadcountDashboard({ container, shift, getDate }) {
     currentDate = getDate();
     state = normalize(await getHeadcount(shift, currentDate));
     render();
+    // 헤드카운트 자체 구독
     if (unsub) { try { unsub(); } catch {} unsub = null; }
     let first = true;
     unsub = await subscribeHeadcount(shift, currentDate, (data) => {
@@ -217,6 +222,73 @@ export function renderHeadcountDashboard({ container, shift, getDate }) {
       state = normalize(data);
       render();
     });
+
+    // ─ 자동 동기화: 다른 탭의 데이터가 바뀌면 Actual 재계산 ─
+    closeSourceSubs();
+    const onChange = () => scheduleAutoSync(150);
+    unsubPack    = await subscribeOps(shift, "pack", currentDate, onChange);
+    unsubPick    = await subscribeOps(shift, "pick", currentDate, onChange);
+    unsubNewTemp = await subscribeFlow(shift, "newTemp", currentDate, onChange);
+    unsubTC      = await subscribeTCPosition(shift, currentDate, onChange);
+
+    // 초기 자동 동기화도 한 번 실행
+    scheduleAutoSync(300);
+  }
+
+  function closeSourceSubs() {
+    [unsubPack, unsubPick, unsubNewTemp, unsubTC].forEach((fn) => {
+      if (typeof fn === "function") { try { fn(); } catch {} }
+    });
+    unsubPack = unsubPick = unsubNewTemp = unsubTC = null;
+  }
+
+  // 짧은 debounce — 여러 구독이 동시에 폭주해도 한 번만 계산
+  function scheduleAutoSync(delay = 200) {
+    if (autoSyncTimer) clearTimeout(autoSyncTimer);
+    autoSyncTimer = setTimeout(runAutoSync, delay);
+  }
+
+  async function runAutoSync() {
+    autoSyncTimer = null;
+    // 입력 중이면 건너뜀 (사용자 수동 편집 보호)
+    if (root.querySelector("input.hc-input:focus")) {
+      // 다음 기회에 다시
+      scheduleAutoSync(1500);
+      return;
+    }
+    try {
+      const computed = await computeActualFromSources(shift, currentDate);
+      // 변경 사항 검사 — 동일하면 저장 스킵
+      const newActual = {
+        tc: computed.tc.actual,
+        perm: computed.perm.actual,
+        temp: computed.temp.actual,
+        newbie: computed.newbie.actual,
+      };
+      const same = lastComputedActual &&
+        ["tc","perm","temp","newbie"].every((k) => lastComputedActual[k] === newActual[k]);
+      if (same && state.tc.actual === newActual.tc &&
+          state.perm.actual === newActual.perm &&
+          state.temp.actual === newActual.temp &&
+          state.newbie.actual === newActual.newbie) {
+        return;
+      }
+      lastComputedActual = newActual;
+      // 상태 업데이트 (Plan 은 유지)
+      state.tc.actual     = newActual.tc;
+      state.perm.actual   = newActual.perm;
+      state.temp.actual   = newActual.temp;
+      state.newbie.actual = newActual.newbie;
+      render();
+      // DB 저장 — 다른 매니저들도 보도록
+      saving = true;
+      try {
+        await setHeadcount(shift, currentDate, state, getSession()?.nickname || "auto");
+      } finally { saving = false; }
+      onActualChanged?.();
+    } catch (e) {
+      console.warn("auto-sync failed", e);
+    }
   }
 
   function normalize(d) {
@@ -233,9 +305,21 @@ export function renderHeadcountDashboard({ container, shift, getDate }) {
 
   return {
     setDate() { loadAndSubscribe(); },
+    resync() { scheduleAutoSync(0); },
+    async resetAll() {
+      state = blankState();
+      lastComputedActual = null;
+      render();
+      saving = true;
+      try {
+        await setHeadcount(shift, currentDate, state, getSession()?.nickname || "");
+      } finally { saving = false; }
+    },
     destroy() {
       if (unsub) { try { unsub(); } catch {} unsub = null; }
+      closeSourceSubs();
       if (saveTimer) clearTimeout(saveTimer);
+      if (autoSyncTimer) clearTimeout(autoSyncTimer);
       try { container.removeChild(root); } catch {}
     },
   };
