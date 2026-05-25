@@ -141,6 +141,99 @@ export async function upsertMaster(shift, role, kucode, data) {
   );
 }
 
+// 대량 입력 — Firestore writeBatch 1회 round-trip 으로 최대 500개 처리
+// rows: [{ kucode, name, team?, ... }] 형식. id 는 kucode 로 자동 설정.
+// 반환: { ok: 성공개수, batches: 배치 수 }
+export async function batchUpsertMaster(shift, role, rows) {
+  if (!rows || !rows.length) return { ok: 0, batches: 0 };
+
+  // LS 미러링 — 항상 먼저
+  const lsWrite = () => {
+    const list = readLS(masterKey(shift, role)) || [];
+    const byId = new Map(list.map((r) => [r.id, r]));
+    for (const r of rows) {
+      const ku = String(r.kucode || r.id || "").trim();
+      if (!ku) continue;
+      const existing = byId.get(ku) || {};
+      byId.set(ku, { ...existing, ...r, id: ku, kucode: ku, updatedAt: Date.now() });
+    }
+    writeLS(masterKey(shift, role), [...byId.values()]);
+  };
+
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      // Firestore writeBatch 는 한 번에 최대 500 ops
+      const CHUNK = 450;
+      let total = 0;
+      let batches = 0;
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const chunk = rows.slice(i, i + CHUNK);
+        const batch = fs.writeBatch(db);
+        for (const r of chunk) {
+          const ku = String(r.kucode || r.id || "").trim();
+          if (!ku) continue;
+          batch.set(
+            fs.doc(db, "masters", shift, role, ku),
+            { ...r, kucode: ku, updatedAt: Date.now() },
+            { merge: true }
+          );
+          total++;
+        }
+        await batch.commit();
+        batches++;
+      }
+      lsWrite();
+      return { ok: total, batches };
+    },
+    () => { lsWrite(); return { ok: rows.length, batches: 1 }; }
+  );
+}
+
+// PACK/PICK ops 도 같은 방식으로 일괄 처리
+export async function batchUpsertOps(shift, kind, rows) {
+  if (!rows || !rows.length) return { ok: 0, batches: 0 };
+  const lsWrite = () => {
+    const list = readLS(opsKey(shift, kind)) || [];
+    const byId = new Map(list.map((r) => [r.id, r]));
+    for (const r of rows) {
+      const id = r.id || crypto.randomUUID();
+      const existing = byId.get(id) || {};
+      byId.set(id, { ...existing, ...r, id, updatedAt: Date.now() });
+    }
+    writeLS(opsKey(shift, kind), [...byId.values()]);
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const CHUNK = 450;
+      let total = 0;
+      let batches = 0;
+      const assignedIds = [];
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const chunk = rows.slice(i, i + CHUNK);
+        const batch = fs.writeBatch(db);
+        for (const r of chunk) {
+          const id = r.id || crypto.randomUUID();
+          r.id = id;
+          assignedIds.push(id);
+          batch.set(
+            fs.doc(db, "ops", shift, kind, id),
+            { ...r, updatedAt: Date.now() },
+            { merge: true }
+          );
+          total++;
+        }
+        await batch.commit();
+        batches++;
+      }
+      lsWrite();
+      return { ok: total, batches, ids: assignedIds };
+    },
+    () => { lsWrite(); return { ok: rows.length, batches: 1, ids: rows.map((r) => r.id) }; }
+  );
+}
+
 export async function deleteMaster(shift, role, kucode) {
   const id = String(kucode);
   const lsDel = () => {

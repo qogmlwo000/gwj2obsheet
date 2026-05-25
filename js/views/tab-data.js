@@ -2,7 +2,7 @@
 // 실시간 구독: subscribeMaster 로 다른 사용자가 추가/수정/삭제한 행을 자동 반영.
 
 import { createGrid } from "../components/grid.js";
-import { listMaster, upsertMaster, deleteMaster, subscribeMaster } from "../db.js";
+import { listMaster, upsertMaster, deleteMaster, subscribeMaster, batchUpsertMaster } from "../db.js";
 import { isAdmin, clearNicknameCache } from "../auth.js";
 import { showToast } from "../toast.js";
 import { confirmDialog, alertDialog } from "../components/dialog.js";
@@ -181,15 +181,18 @@ export async function renderDataTab(root, ctx, params) {
     selectable: true,
     copyKeys: COPY_KEYS[cur.id],
     makeNewRow: () => ({ id: "" }),
-    onCommit: async (row, key, value, prevSnapshot) => {
+    onCommit: async (row, key, value, prevSnapshot, opts) => {
       const kucode = (row.kucode || "").trim();
+      const bulkMode = opts?.bulk === true;
 
       // 쿠코드를 비우면 → 행 자체를 마스터에서 삭제 + 다른 컬럼 클리어
       if (key === "kucode" && !kucode) {
         if (row.id) {
           try { await deleteMaster(shift, cur.id, row.id); } catch {}
-          if (cur.id === "manager" || cur.id === "captain") clearNicknameCache();
-          clearMemberIndex();
+          if (!bulkMode) {
+            if (cur.id === "manager" || cur.id === "captain") clearNicknameCache();
+            clearMemberIndex();
+          }
         }
         row.id = "";
         row.name = "";
@@ -201,16 +204,34 @@ export async function renderDataTab(root, ctx, params) {
 
       // 새 행이면 id 부여
       if (!row.id) row.id = kucode;
-      // 쿠코드를 바꾼 경우 기존 docId 삭제 후 새로 등록
+      // 쿠코드를 바꾼 경우 기존 docId 삭제 후 새로 등록 (bulk 에선 스킵 — onBulkPasteEnd 가 처리)
       if (row.id !== kucode) {
-        try { await deleteMaster(shift, cur.id, row.id); } catch {}
+        if (!bulkMode) { try { await deleteMaster(shift, cur.id, row.id); } catch {} }
         row.id = kucode;
       }
+      // ── bulk paste: 개별 setDoc 안 함 (onBulkPasteEnd 에서 writeBatch 1회로 처리) ──
+      if (bulkMode) return {};
+
       await upsertMaster(shift, cur.id, kucode, sanitize(row));
       if (cur.id === "manager" || cur.id === "captain") clearNicknameCache();
-      // member-label 캐시 무효화 — 다른 탭(PACK/PICK/공유)에서 즉시 반영되도록
       clearMemberIndex();
       return {};
+    },
+    onBulkPasteEnd: async (pastedRows) => {
+      // bulk paste 완료 — Firestore writeBatch 로 1회 round-trip
+      const valid = pastedRows.filter((r) => (r.kucode || "").trim());
+      if (!valid.length) return;
+      const payload = valid.map((r) => sanitize(r));
+      try {
+        const { ok, batches } = await batchUpsertMaster(shift, cur.id, payload);
+        // 캐시 1회만 무효화
+        if (cur.id === "manager" || cur.id === "captain") clearNicknameCache();
+        clearMemberIndex();
+        showToast(`✓ ${ok}개 행 일괄 추가 (${batches}배치)`, "success");
+      } catch (e) {
+        console.error("bulk paste failed", e);
+        showToast("일괄 추가 실패: " + (e.message || e), "error");
+      }
     },
     onDelete: async (row) => {
       if (row.id) {

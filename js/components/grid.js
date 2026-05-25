@@ -31,6 +31,7 @@ export function createGrid(opts) {
     onDelete = async () => {},
     onRowContextMenu = null,
     onLabelClick = null,
+    onBulkPasteEnd = null,        // (pastedRows) => void — paste 완료 후 일괄 작업용
     makeNewRow = () => ({}),
     emptyText = null,
     highlightText = "",
@@ -495,38 +496,81 @@ export function createGrid(opts) {
     const cb = e.clipboardData;
     if (!cb) return;
     const text = cb.getData("text/plain");
-    if (!text || (!text.includes("\t") && !text.includes("\n"))) return;
+    if (!text) return;
+    // 단일 셀 붙여넣기 (탭/줄바꿈 없음) — 브라우저 기본 동작 유지
+    if (!text.includes("\t") && !text.includes("\n")) return;
     e.preventDefault();
 
-    const lines = text.replace(/\r/g, "").split("\n").filter((l) => l.length > 0);
+    // 1) 라인 파싱 — 끝 줄바꿈으로 인한 빈 줄 제거, 단 모든 셀이 비어도 살리진 않음
+    const lines = text.replace(/\r/g, "").split("\n")
+      .map((l) => l.replace(/\s+$/, ""))           // 트레일링 공백 제거
+      .filter((l, idx, arr) => l.length > 0 || (idx < arr.length - 1)); // 마지막만 빈 줄이면 버림
+    if (!lines.length) return;
     const matrix = lines.map((l) => l.split("\t"));
 
-    const startRow = vi;
-    const startCol = ci;
-
+    // 2) 모든 행에 대해 동기적으로 데이터 입력 후 한 번만 render
+    const targets = []; // { row, fields: [{key, value}] }
     for (let r = 0; r < matrix.length; r++) {
-      const targetVi = startRow + r;
-      let row;
       const visible = visibleRows();
+      const targetVi = vi + r;
+      let row;
       if (targetVi < visible.length) row = visible[targetVi];
       else { row = makeNewRow(); rows.push(row); }
+
+      const fields = [];
       for (let c = 0; c < matrix[r].length; c++) {
-        const colIdx = startCol + c;
+        const colIdx = ci + c;
         const col = columns[colIdx];
         if (!col || col.readonly || col.type === "label") continue;
         const raw = matrix[r][c].trim();
+        let val;
         if (col.type === "multi") {
-          row[col.key] = raw
-            .split(/[,/·]/)
-            .map((s) => s.trim())
-            .filter((s) => col.options.includes(s));
+          val = raw.split(/[,/·]/).map((s) => s.trim()).filter((s) => col.options.includes(s));
         } else {
-          row[col.key] = raw;
+          val = raw;
         }
-        await onCommit(row, col.key, row[col.key]);
+        row[col.key] = val;
+        fields.push({ key: col.key, value: val });
+      }
+      if (fields.length) targets.push({ row, fields });
+    }
+
+    if (!targets.length) return;
+
+    // 3) 즉시 한 번 render — 사용자에게 값이 들어간 모습 보이기
+    render();
+
+    // 4) 모든 commit 을 병렬로 실행 (각 row 의 first field 만 보내면 onCommit 이 row 전체 저장하므로 키는 kucode 우선)
+    //    중복 commit 방지 — 각 row 당 한 번만 commit (kucode 또는 첫 비-readonly 키)
+    const opts = { bulk: true, totalRows: targets.length };
+    const commits = targets.map(({ row, fields }, idx) => {
+      // 첫 필드만 commit — onCommit 은 row 전체를 처리
+      const f = fields.find((x) => x.key === "kucode") || fields[0];
+      const isLast = idx === targets.length - 1;
+      return Promise.resolve(onCommit(row, f.key, f.value, { ...row }, { ...opts, isLast }))
+        .then((result) => ({ row, key: f.key, result }))
+        .catch((err) => ({ row, key: f.key, result: { error: String(err?.message || err) } }));
+    });
+    const results = await Promise.all(commits);
+
+    // 5) 결과 패치 적용
+    for (const { row, key, result } of results) {
+      if (result?.patch) Object.assign(row, result.patch);
+      if (result?.error) {
+        row.__errors = { ...(row.__errors || {}), [key]: result.error };
+      } else if (row.__errors) {
+        delete row.__errors[key];
       }
     }
+
+    // 6) 최종 render
     render();
+
+    // 7) bulk 완료 알림 — 부모(예: pack-pick-grid)가 dup/총계 등 일괄 갱신
+    if (typeof opts.onBulkDone === "function") opts.onBulkDone();
+    if (typeof onBulkPasteEnd === "function") {
+      try { onBulkPasteEnd(targets.map((t) => t.row)); } catch (e) { console.warn(e); }
+    }
   }
 
   function copySelection() {

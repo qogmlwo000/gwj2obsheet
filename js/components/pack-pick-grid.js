@@ -15,13 +15,13 @@ import { buildMemberLabel, autofillFromMaster } from "./member-label.js";
 import { openMemberCard } from "./member-card.js";
 import { confirmDialog } from "./dialog.js";
 import { openAuditPanel } from "./audit-panel.js";
-import { listOps, upsertOps, deleteOps, subscribeOps, logAudit, upsertShare, deleteShare, listShare } from "../db.js";
+import { listOps, upsertOps, deleteOps, subscribeOps, logAudit, upsertShare, deleteShare, listShare, batchUpsertOps } from "../db.js";
 import { showToast } from "../toast.js";
 import { getSession } from "../auth.js";
 import { markEditing, unmarkEditing, subscribeEditing } from "./editing-presence.js";
 
-const BUFFER_ROWS = 3;       // 데이터 뒤로 항상 유지하는 빈 행 수
-const MIN_VISIBLE_ROWS = 8;  // 카드 최소 높이를 위한 최소 표시 행 수
+const BUFFER_ROWS = 3;        // 데이터 뒤로 항상 유지하는 빈 행 수
+const MIN_VISIBLE_ROWS = 25;  // 카드 최소 행 수 (기본 입력 가능 칸)
 
 // PACK / PICK 그룹 정의 — share 보드도 동일 라벨 사용 (SSOT)
 export const PACK_GROUPS_DEF = [
@@ -291,11 +291,13 @@ export function renderPackPickStrip(opts) {
       makeNewRow: () => ({ id: "" }),
       emptyText: "쿠코드를 입력하거나 엑셀에서 붙여넣으세요.",
       highlightText: searchText,
-      onCommit: async (row, key, value, prevSnapshot) => {
+      onCommit: async (row, key, value, prevSnapshot, opts) => {
         const ku = String(row.kucode || "").trim();
+        const bulkMode = opts?.bulk === true;
 
         // ── 충돌 감지: 편집 시작 후 다른 사람이 같은 행을 수정했는지 ──
-        if (row.__editStartUpdatedAt && row.updatedAt &&
+        // bulk paste 중에는 충돌 다이얼로그 스킵 (대량 입력 흐름 방해 방지)
+        if (!bulkMode && row.__editStartUpdatedAt && row.updatedAt &&
             row.updatedAt > row.__editStartUpdatedAt) {
           const ok = await confirmDialog({
             title: "⚠ 충돌 감지",
@@ -330,10 +332,12 @@ export function renderPackPickStrip(opts) {
           row.name = "";
           row.team = "";
           row.__dup = false;
-          markAllDuplicates(allRows, cards);
-          cards.forEach((c) => c.gridApi.refresh());
-          refreshTotals();
-          ensureBufferRows();
+          if (!bulkMode) {
+            markAllDuplicates(allRows, cards);
+            cards.forEach((c) => c.gridApi.refresh());
+            refreshTotals();
+            ensureBufferRows();
+          }
           return { patch: { name: "", team: "" } };
         }
         if (!ku) return {};
@@ -349,6 +353,12 @@ export function renderPackPickStrip(opts) {
         row.floor = (kind === "pick") ? group.id : undefined;
         row.subType = sub || null;
         const isCreate = !row.id;
+        // bulk paste: 개별 setDoc / share sync 안 함 — onBulkPasteEnd 가 writeBatch 로 처리
+        if (bulkMode) {
+          // 메모리상 상태만 유지, allRows 에 임시 등록 (id 없이)
+          if (!allRows.find((x) => x === row)) allRows.push(row);
+          return { patch: { name: row.name, team: row.team } };
+        }
         const id = await upsertOps(shift, kind, row.id, sanitize(row));
         row.id = id;
         row.__editStartUpdatedAt = row.updatedAt || Date.now();
@@ -364,18 +374,72 @@ export function renderPackPickStrip(opts) {
           });
         } catch (e) { console.warn("share sync failed", e); }
 
-        await logAudit({
-          shift, scope: `ops:${kind}`, target: ku,
-          action: isCreate ? "create" : "update",
-          by: getSession()?.nickname,
-          before, after: sanitize(row),
-        });
+        // bulk paste 중에는 audit log 스킵 (대량 작성으로 로그 폭주 방지)
+        if (!bulkMode) {
+          await logAudit({
+            shift, scope: `ops:${kind}`, target: ku,
+            action: isCreate ? "create" : "update",
+            by: getSession()?.nickname,
+            before, after: sanitize(row),
+          });
+        }
         if (isCreate && !allRows.find((x) => x.id === row.id)) allRows.push(row);
+        if (!bulkMode) {
+          markAllDuplicates(allRows, cards);
+          cards.forEach((c) => c.gridApi.refresh());
+          refreshTotals();
+          ensureBufferRows();
+        }
+        return { patch: { name: row.name, team: row.team } };
+      },
+      onBulkPasteEnd: async (pastedRows) => {
+        // bulk paste 완료 — writeBatch 로 1회 round-trip
+        // 1) 유효한 행만 (kucode + 에러 없음)
+        const valid = pastedRows.filter((r) => {
+          const ku = String(r.kucode || "").trim();
+          if (!ku) return false;
+          if (r.__errors && Object.keys(r.__errors).length) return false;
+          return true;
+        });
+        if (valid.length) {
+          // 2) 모두 line/floor/subType/date 세팅 + sanitize
+          const payload = valid.map((r) => {
+            r.date    = date;
+            r.line    = (kind === "pack") ? group.id : undefined;
+            r.floor   = (kind === "pick") ? group.id : undefined;
+            r.subType = sub || null;
+            return sanitize(r);
+          });
+          try {
+            const { ok, batches, ids } = await batchUpsertOps(shift, kind, payload);
+            // 할당된 id 를 row 에 반영 (batchUpsertOps 가 r.id 를 mutate)
+            valid.forEach((r, i) => {
+              if (!r.id && ids && ids[i]) r.id = ids[i];
+              r.__editStartUpdatedAt = Date.now();
+            });
+            // 공유 시트도 병렬 처리 (네트워크 round-trip 단축)
+            await Promise.allSettled(valid.map((r) =>
+              upsertShare(shift, kind, String(r.kucode), {
+                kucode: r.kucode, name: r.name || "", team: r.team || "",
+                group: group.id, date,
+              })
+            ));
+            console.log(`[bulk paste] ${ok}개 / ${batches}배치`);
+          } catch (e) {
+            console.error("bulk paste failed", e);
+            showToast("일괄 추가 실패: " + (e.message || e), "error");
+          }
+        }
+        // 3) UI 갱신
         markAllDuplicates(allRows, cards);
         cards.forEach((c) => c.gridApi.refresh());
         refreshTotals();
         ensureBufferRows();
-        return { patch: { name: row.name, team: row.team } };
+        // 4) 요약 토스트
+        const ok = valid.length;
+        const fail = pastedRows.length - ok;
+        if (fail) showToast(`✓ ${ok}명 추가 · ${fail}개 오류 (DATA 미등록)`, fail > ok ? "error" : "info");
+        else if (ok) showToast(`✓ ${ok}명 추가 완료`, "success");
       },
       onDelete: async (row) => {
         const ok = await confirmDialog({

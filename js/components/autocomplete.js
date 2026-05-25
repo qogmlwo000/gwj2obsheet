@@ -122,8 +122,15 @@ export function attachAutocomplete(input, getOptions) {
     items[highlight]?.scrollIntoView({ block: "nearest" });
   }
 
-  input.addEventListener("focus", build);
-  input.addEventListener("input", build);
+  let pasting = false;
+  input.addEventListener("paste", () => {
+    // 붙여넣기 중에는 드롭다운 안 띄움 (성능 + 시각 깔끔)
+    pasting = true;
+    closeAny();
+    setTimeout(() => { pasting = false; }, 250);
+  });
+  input.addEventListener("focus", () => { if (!pasting) build(); });
+  input.addEventListener("input", () => { if (!pasting) build(); });
   input.addEventListener("blur",  () => setTimeout(() => {
     // 항목 클릭으로 닫힌 경우엔 이미 closed
     if (openMenu && openMenu.input === input) closeAny();
