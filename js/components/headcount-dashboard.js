@@ -25,7 +25,7 @@ export function renderHeadcountDashboard({ container, shift, getDate, onActualCh
 
   let state = blankState();
   let unsub = null;
-  let unsubPack = null, unsubPick = null, unsubNewTemp = null, unsubTC = null;
+  let unsubPack = null, unsubPick = null, unsubNewTemp = null, unsubTC = null, unsubCaptain = null;
   let saving = false;
   let saveTimer = null;
   let currentDate = getDate();
@@ -229,6 +229,7 @@ export function renderHeadcountDashboard({ container, shift, getDate, onActualCh
     unsubPack    = await subscribeOps(shift, "pack", currentDate, onChange);
     unsubPick    = await subscribeOps(shift, "pick", currentDate, onChange);
     unsubNewTemp = await subscribeFlow(shift, "newTemp", currentDate, onChange);
+    unsubCaptain = await subscribeFlow(shift, "captain", currentDate, onChange);  // ★ FLOW>TEAM CAPTAIN
     unsubTC      = await subscribeTCPosition(shift, currentDate, onChange);
 
     // 초기 자동 동기화도 한 번 실행
@@ -236,10 +237,10 @@ export function renderHeadcountDashboard({ container, shift, getDate, onActualCh
   }
 
   function closeSourceSubs() {
-    [unsubPack, unsubPick, unsubNewTemp, unsubTC].forEach((fn) => {
+    [unsubPack, unsubPick, unsubNewTemp, unsubTC, unsubCaptain].forEach((fn) => {
       if (typeof fn === "function") { try { fn(); } catch {} }
     });
-    unsubPack = unsubPick = unsubNewTemp = unsubTC = null;
+    unsubPack = unsubPick = unsubNewTemp = unsubTC = unsubCaptain = null;
   }
 
   // 짧은 debounce — 여러 구독이 동시에 폭주해도 한 번만 계산
@@ -352,17 +353,22 @@ function escape(s) {
 // 자동 동기화 — 다른 탭/마스터에서 Actual 카운트 계산
 // ──────────────────────────────────────────────────────────
 export async function computeActualFromSources(shift, date) {
-  const [pack, pick, newTemp, tcpos, permMaster, tempMaster] = await Promise.all([
+  const [pack, pick, newTemp, captain, tcpos, permMaster, tempMaster] = await Promise.all([
     listOps(shift, "pack", date),
     listOps(shift, "pick", date),
     listFlow(shift, "newTemp", date),
+    listFlow(shift, "captain", date),         // ★ FLOW > TEAM CAPTAIN 도 포함
     getTCPosition(shift, date),
     listMaster(shift, "perm"),
     listMaster(shift, "temp"),
   ]);
 
-  // T/C Actual = TC 포지션에 배정된 고유 쿠코드 수
+  // T/C Actual = FLOW>captain + TC 포지션에 배정된 고유 쿠코드 (Union, dedupe)
   const tcKus = new Set();
+  captain.forEach((r) => {
+    const ku = String(r?.kucode || "").trim();
+    if (ku) tcKus.add(ku);
+  });
   if (tcpos?.positions) {
     for (const slot of Object.values(tcpos.positions)) {
       const ku = String(slot?.kucode || "").trim();

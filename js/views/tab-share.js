@@ -121,6 +121,11 @@ export async function renderShareTab(root, ctx, params) {
 
   let rows = await listShare(shift, subId);
 
+  // ★ 자동 정리: 7일 이상 지난 / date 없는 항목은 자동으로 제거
+  // (사용자가 직접 정리 버튼 안 눌러도 깔끔하게 유지)
+  await autoCleanStale(shift, subId, rows);
+  rows = await listShare(shift, subId);
+
   function visibleRows() {
     if (!scopeToday) return rows;
     const d = dateInput.value || todayStr();
@@ -355,6 +360,22 @@ function pickVariant(kind, group) {
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// 7일 이상 지난 항목 + date 필드 없는 레거시 항목을 자동 정리.
+// 무음 정리 — 로그만 남기고 토스트는 띄우지 않음 (탭 진입 시 자연스러운 청소)
+async function autoCleanStale(shift, subId, rows) {
+  const today = new Date();
+  const cutoff = new Date(today); cutoff.setDate(today.getDate() - 7);
+  const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}-${String(cutoff.getDate()).padStart(2, "0")}`;
+  const stale = rows.filter((r) => !r.date || r.date < cutoffStr);
+  if (!stale.length) return;
+  try {
+    await Promise.allSettled(stale.map((r) => deleteShare(shift, subId, r.id)));
+    console.log(`[share auto-clean] ${stale.length}개 항목 자동 정리 (cutoff: ${cutoffStr})`);
+  } catch (e) {
+    console.warn("share auto-clean failed", e);
+  }
 }
 
 function sanitize(row) {

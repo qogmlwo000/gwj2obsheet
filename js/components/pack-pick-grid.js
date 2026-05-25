@@ -671,16 +671,16 @@ export function renderPackPickStrip(opts) {
     onCountChange({ total });
   }
 
-  // 빈 행이 부족하면 보충 (편집 후 마지막 빈 행이 데이터 행이 된 경우)
+  // 빈 행이 부족하면 끝에만 보충 — 기존 순서 절대 변경하지 않음
+  // (이전 버그: dataRows 를 먼저 두고 buffers 를 뒤로 옮겨 순서가 깨졌었음)
   function ensureBufferRows() {
     cards.forEach((c) => {
       const cur = c.gridApi.getRows();
       const buffers = cur.filter((r) => !r.id && !r.kucode);
-      if (buffers.length >= BUFFER_ROWS) return;
-      const dataRows = cur.filter((r) => r.id || r.kucode);
       const needed = Math.max(BUFFER_ROWS - buffers.length, 0);
-      const newRows = padToMin([...dataRows, ...buffers, ...makeBuffer(needed)]);
-      c.gridApi.setRows(newRows);
+      if (needed === 0 && cur.length >= MIN_VISIBLE_ROWS) return;
+      // 끝에만 빈 행 추가 (순서 보존)
+      c.gridApi.setRows(padToMin([...cur, ...makeBuffer(needed)]));
     });
   }
 
