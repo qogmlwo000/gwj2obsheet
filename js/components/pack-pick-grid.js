@@ -167,6 +167,7 @@ export function renderPackPickStrip(opts) {
   }
 
   // ── 다른 사용자의 변경 (subscribeOps) 을 카드별 셀 단위로 적용 ──
+  // ★ 절대 setRows 로 전체 재정렬하지 않음 — 사용자가 입력 중인 행을 보호
   function applyRemoteUpdate(remoteRows) {
     const remoteMap = new Map();
     remoteRows.forEach((r) => { if (r?.id) remoteMap.set(String(r.id), r); });
@@ -182,21 +183,15 @@ export function renderPackPickStrip(opts) {
       if (exists) {
         card.gridApi.patchRow(id, r);
       } else {
-        // 빈 버퍼 행이 있으면 그 위치에, 없으면 끝에 추가
-        const bufferIdx = findBufferIndex(card.gridApi.getRows());
-        if (bufferIdx >= 0) {
-          // 버퍼 행 하나 제거하고 새 행 삽입
-          const bufferRows = card.gridApi.getRows().filter((row) => !row.id);
-          if (bufferRows.length > 0) {
-            // setRows 사용 — 단순화
-            const dataRows = card.gridApi.getRows().filter((row) => row.id);
-            const newRows = [...dataRows, r, ...makeBuffer(Math.max(BUFFER_ROWS - 1, 0))];
-            card.gridApi.setRows(padToMin(newRows));
-          } else {
-            card.gridApi.insertRow(r);
-          }
+        // 빈 버퍼 행 위치를 찾아 그 자리만 in-place 교체 (다른 행 순서 절대 변경 X)
+        const cur = card.gridApi.getRows();
+        const firstBufferIdx = cur.findIndex((row) => !row.id && !row.kucode);
+        if (firstBufferIdx >= 0) {
+          const newRows = cur.slice();
+          newRows[firstBufferIdx] = r;
+          card.gridApi.setRows(newRows);
         } else {
-          card.gridApi.insertRow(r);
+          card.gridApi.insertRow(r); // 끝에 추가
         }
       }
     }
@@ -355,10 +350,15 @@ export function renderPackPickStrip(opts) {
         const isCreate = !row.id;
         // bulk paste: 개별 setDoc / share sync 안 함 — onBulkPasteEnd 가 writeBatch 로 처리
         if (bulkMode) {
-          // 메모리상 상태만 유지, allRows 에 임시 등록 (id 없이)
+          // ★ 레이스 방지: id 를 미리 할당해서 onSnapshot 이 와도 findRow 가 작동하게
+          if (!row.id) row.id = crypto.randomUUID();
           if (!allRows.find((x) => x === row)) allRows.push(row);
           return { patch: { name: row.name, team: row.team } };
         }
+        // ★ 레이스 방지: upsertOps await 전에 id 를 미리 할당.
+        // 그래야 await 도중 Firestore onSnapshot 이 와도 findRow(id) 가 로컬 행을 찾아 patchRow 경로로 가서
+        // 행 위치/데이터가 깨지지 않는다.
+        if (isCreate) row.id = crypto.randomUUID();
         const id = await upsertOps(shift, kind, row.id, sanitize(row));
         row.id = id;
         row.__editStartUpdatedAt = row.updatedAt || Date.now();
