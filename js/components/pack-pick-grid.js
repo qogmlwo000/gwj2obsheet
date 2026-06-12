@@ -11,7 +11,7 @@
 
 import { createGrid } from "./grid.js";
 import { openContextMenu } from "./context-menu.js";
-import { buildMemberLabel, autofillFromMaster } from "./member-label.js";
+import { buildMemberLabel, buildSkillChipsLabel, autofillFromMaster } from "./member-label.js";
 import { openMemberCard } from "./member-card.js";
 import { confirmDialog } from "./dialog.js";
 import { openAuditPanel } from "./audit-panel.js";
@@ -154,8 +154,11 @@ export function renderPackPickStrip(opts) {
   })();
 
   function buildCards() {
-    // 기존 카드 cleanup
-    cards.forEach((c) => { if (c.unsubEditing) try { c.unsubEditing(); } catch {} });
+    // 기존 카드 cleanup — editing 구독 + grid(document 리스너) 모두 해제
+    cards.forEach((c) => {
+      if (c.unsubEditing) try { c.unsubEditing(); } catch {}
+      try { c.gridApi.destroy(); } catch {}
+    });
     strip.innerHTML = "";
     cards.length = 0;
     groups.forEach((g) => {
@@ -178,6 +181,12 @@ export function renderPackPickStrip(opts) {
     // 추가/수정
     for (const [id, r] of remoteMap.entries()) {
       const card = findCardForRow(r);
+      // 다른 사용자가 행을 다른 그룹으로 옮긴 경우 — 옛 카드에 남은 사본 제거
+      const old = oldMap.get(id);
+      if (old) {
+        const oldCard = findCardForRow(old);
+        if (oldCard && oldCard !== card) oldCard.gridApi.removeRow(id);
+      }
       if (!card) continue;
       const exists = card.gridApi.findRow(id);
       if (exists) {
@@ -335,7 +344,13 @@ export function renderPackPickStrip(opts) {
           }
           return { patch: { name: "", team: "" } };
         }
-        if (!ku) return {};
+        if (!ku) {
+          // 쿠코드 없이 다른 컬럼만 입력 — 저장되지 않음을 안내 (bulk paste 흐름은 제외)
+          if (!bulkMode && key !== "kucode" && String(value || "").trim()) {
+            return { error: "쿠코드를 먼저 입력하세요." };
+          }
+          return {};
+        }
 
         if (key === "kucode") {
           const fill = autofillFromMaster(memberIndex, ku);
@@ -796,14 +811,28 @@ function markDuplicates(rows) {
   });
 }
 
-// 카드 안의 모든 grid rows (빈 행 포함) 까지 dup 검사
+// 카드 안의 모든 grid rows (빈 행 포함) 까지 dup 검사.
+// ★ 같은 id 의 행이 allRows 와 grid 에 서로 다른 객체로 존재할 수 있으므로
+//   (원격 스냅샷 후 allRows 가 새 객체 배열로 교체됨) id 기준으로 dedupe — 오탐 방지.
 function markAllDuplicates(allRows, cards) {
-  const all = new Set(allRows || []);
+  const all = [];
+  const seenIds = new Set();
+  const push = (r) => {
+    if (!r) return;
+    const id = r.id != null && r.id !== "" ? String(r.id) : null;
+    if (id) {
+      if (seenIds.has(id)) return;
+      seenIds.add(id);
+    }
+    all.push(r);
+  };
+  // 화면에 보이는 grid 행을 먼저 (마킹 대상), allRows 는 grid 에 없는 id 만 보충
   (cards || []).forEach((c) => {
     if (!c?.gridApi) return;
-    c.gridApi.getRows().forEach((r) => all.add(r));
+    c.gridApi.getRows().forEach(push);
   });
-  markDuplicates([...all]);
+  (allRows || []).forEach(push);
+  markDuplicates(all);
 }
 
 function columnDef(memberIndex) {
@@ -814,6 +843,10 @@ function columnDef(memberIndex) {
       getLabel: (row) => buildMemberLabel(memberIndex && memberIndex.map.get(String(row.kucode)), row.name),
     },
     { key: "team", label: "조", type: "text", readonly: true, width: "52px" },
+    {
+      key: "skills", label: "M/A/P", type: "label", width: "64px",
+      getLabel: (row) => buildSkillChipsLabel(memberIndex && memberIndex.map.get(String(row.kucode))),
+    },
     { key: "note", label: "비고", type: "text" },
   ];
 }

@@ -89,9 +89,12 @@ export function renderShell(root, onLogout) {
   const snopDiff = snopWrap.querySelector(".snop-diff");
   const today = todayStr();
 
-  async function refreshDiff() {
+  // 전일 SNOP 은 1회만 조회해 캐시 (키 입력마다 Firestore 읽기 방지)
+  let yesterdaySnop = null;
+
+  function refreshDiff() {
     const cur = parseSNOP(snopInput.value);
-    const yesterday = parseSNOP(await getYesterdaySnop(shift, today));
+    const yesterday = yesterdaySnop;
     if (cur == null || yesterday == null) {
       snopDiff.textContent = "";
       snopDiff.className = "snop-diff";
@@ -113,15 +116,21 @@ export function renderShell(root, onLogout) {
   // SNOP 실시간 구독 — 다른 매니저가 같은 날짜의 SNOP을 갱신하면 즉시 반영
   let unsubSnop = null;
   (async () => {
-    unsubSnop = await subscribeSnop(shift, today, (val) => {
-      // 사용자가 현재 입력 중이면 덮어쓰지 않음
-      if (document.activeElement === snopInput) return;
-      const formatted = formatSnop(val);
-      if (snopInput.value === formatted) return;
-      snopInput.value = formatted;
-      snopInput.dataset.committed = String(val || "");
+    try {
+      yesterdaySnop = parseSNOP(await getYesterdaySnop(shift, today));
       refreshDiff();
-    });
+      unsubSnop = await subscribeSnop(shift, today, (val) => {
+        // 사용자가 현재 입력 중이면 덮어쓰지 않음
+        if (document.activeElement === snopInput) return;
+        const formatted = formatSnop(val);
+        if (snopInput.value === formatted) return;
+        snopInput.value = formatted;
+        snopInput.dataset.committed = String(val || "");
+        refreshDiff();
+      });
+    } catch (e) {
+      console.warn("SNOP 구독 실패", e);
+    }
   })();
 
   // 입력 중 자동 천 단위 포맷 (커서 위치 유지)
@@ -201,10 +210,20 @@ export function renderShell(root, onLogout) {
   const themeBtn = makeInlineThemeToggle();
   actions.appendChild(themeBtn);
 
+  // 셸 단위 리소스 정리 — 로그아웃/조 변경 시 호출 (타이머·리스너 누수 방지)
+  function disposeShell() {
+    runCleanup();
+    if (unsubSnop) { try { unsubSnop(); } catch {} unsubSnop = null; }
+    try { clockEl.dispose?.(); } catch {}
+    try { presenceChip.dispose?.(); } catch {}
+    try { connChip.dispose?.(); } catch {}
+    window.removeEventListener("hashchange", routeFromHash);
+  }
+
   const back = document.createElement("button");
   back.className = "icon-btn"; back.title = "조 변경"; back.textContent = "🔄";
   back.addEventListener("click", async () => {
-    runCleanup();
+    disposeShell();
     await leavePresence();
     const s = session;
     delete s.shift;
@@ -216,8 +235,7 @@ export function renderShell(root, onLogout) {
   const logout = document.createElement("button");
   logout.className = "icon-btn"; logout.title = "로그아웃"; logout.textContent = "⏻";
   logout.addEventListener("click", async () => {
-    runCleanup();
-    if (unsubSnop) try { unsubSnop(); } catch {}
+    disposeShell();
     await leavePresence();
     clearSession();
     onLogout();
@@ -353,6 +371,13 @@ function makeConnectionChip() {
   chip.addEventListener("click", () => {
     showToast(chip.title, chip.dataset.state === "live" ? "success" : "info");
   });
+
+  chip.dispose = () => {
+    window.removeEventListener("online", refresh);
+    window.removeEventListener("offline", refresh);
+    window.removeEventListener("gw2ob:fb-fallback", refresh);
+    window.removeEventListener("gw2ob:fb-transient", refresh);
+  };
 
   return chip;
 }

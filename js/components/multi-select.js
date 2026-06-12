@@ -68,11 +68,13 @@ function closeAny() {
 function position(pop, anchor) {
   const r = anchor.getBoundingClientRect();
   pop.style.minWidth = `${r.width}px`;
-  pop.style.left = `${r.left}px`;
+  // 좌우 화면 이탈 보정
+  const popW = pop.offsetWidth || 160;
+  pop.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - popW - 8))}px`;
   // 아래 공간이 부족하면 위로
   const popH = pop.offsetHeight || 200;
   if (r.bottom + popH + 8 > window.innerHeight) {
-    pop.style.top = `${r.top - popH - 4}px`;
+    pop.style.top = `${Math.max(8, r.top - popH - 4)}px`;
   } else {
     pop.style.top = `${r.bottom + 4}px`;
   }

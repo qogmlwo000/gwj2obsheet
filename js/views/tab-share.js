@@ -10,6 +10,7 @@ import { openMemberCard } from "../components/member-card.js";
 import { isAdmin } from "../auth.js";
 import { confirmDialog } from "../components/dialog.js";
 import { showToast } from "../toast.js";
+import { captureElement, copyBlobToClipboard, downloadBlob } from "../capture.js";
 import {
   PACK_GROUPS_DEF, PICK_GROUPS_DEF, normalizePackGroup,
 } from "../components/pack-pick-grid.js";
@@ -97,6 +98,19 @@ export async function renderShareTab(root, ctx, params) {
   cleanupBtn.textContent = "🧹 지난 데이터 정리";
   cleanupBtn.title = "이 날짜 이전의 항목을 모두 삭제합니다";
   head.appendChild(cleanupBtn);
+
+  // 보드 이미지 캡처 — 시업 공지 보고용 (클립보드 복사 / PNG 저장)
+  const captureBtn = document.createElement("button");
+  captureBtn.className = "btn primary";
+  captureBtn.innerHTML = "📋 이미지로 복사";
+  captureBtn.title = "집결지 보드를 이미지로 캡처해 클립보드에 복사 (붙여넣기 가능)";
+  head.appendChild(captureBtn);
+
+  const savePngBtn = document.createElement("button");
+  savePngBtn.className = "btn ghost";
+  savePngBtn.innerHTML = "💾 PNG 저장";
+  savePngBtn.title = "집결지 보드를 이미지 파일로 저장";
+  head.appendChild(savePngBtn);
 
   const toggleBtn = document.createElement("button");
   toggleBtn.className = "btn ghost";
@@ -232,10 +246,12 @@ export async function renderShareTab(root, ctx, params) {
     makeNewRow: () => ({ id: "" }),
     onCommit: async (row, key, value, prevSnapshot) => {
       const ku = String(row.kucode || "").trim();
-      // 쿠코드 없으면: kucode 컬럼일 때만 에러, 다른 컬럼은 silent
+      // 쿠코드 없이 다른 컬럼만 입력 — 저장되지 않음을 안내
       if (!ku) {
-        if (key === "kucode" && value) return { error: "쿠코드를 입력하세요." };
-        return {}; // 비어있고 다른 컬럼 입력 → 저장 안 함
+        if (key !== "kucode" && String(value || "").trim()) {
+          return { error: "쿠코드를 먼저 입력하세요." };
+        }
+        return {};
       }
       if (key === "kucode") {
         const fill = autofillFromMaster(memberIndex, ku);
@@ -304,6 +320,44 @@ export async function renderShareTab(root, ctx, params) {
     refreshTotal();
     renderBoard();
     showToast(`${n}개 정리 완료`, "success");
+  });
+
+  // ── 보드 캡처 ──
+  const dateLabel = () => dateInput.value || todayStr();
+  captureBtn.addEventListener("click", async () => {
+    captureBtn.disabled = true;
+    const original = captureBtn.innerHTML;
+    captureBtn.innerHTML = "⏳ 캡처 중...";
+    try {
+      const blob = await captureElement(boardHost);
+      try {
+        await copyBlobToClipboard(blob);
+        showToast("✓ 클립보드에 복사되었습니다. 어디에든 붙여넣기 (Ctrl+V) 가능!", "success");
+      } catch (clipErr) {
+        console.warn("clipboard failed, fallback to download", clipErr);
+        downloadBlob(blob, `집결지_${subId}_${shift}_${dateLabel()}.png`);
+        showToast("클립보드 권한이 없어 PNG로 다운로드했습니다", "info");
+      }
+    } catch (e) {
+      console.error("capture failed", e);
+      showToast("캡처 실패: " + (e.message || e), "error");
+    } finally {
+      captureBtn.disabled = false;
+      captureBtn.innerHTML = original;
+    }
+  });
+  savePngBtn.addEventListener("click", async () => {
+    savePngBtn.disabled = true;
+    try {
+      const blob = await captureElement(boardHost);
+      downloadBlob(blob, `집결지_${subId}_${shift}_${dateLabel()}.png`);
+      showToast("✓ 이미지 저장 완료", "success");
+    } catch (e) {
+      console.error("save failed", e);
+      showToast("저장 실패: " + (e.message || e), "error");
+    } finally {
+      savePngBtn.disabled = false;
+    }
   });
 
   refreshTotal();

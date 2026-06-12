@@ -3,7 +3,7 @@
 // 실시간 구독: subscribeOps 로 ws kind 변경 자동 반영.
 
 import { createGrid } from "../components/grid.js";
-import { buildMemberLabel, autofillFromMaster } from "../components/member-label.js";
+import { buildMemberLabel, buildSkillChipsLabel, autofillFromMaster } from "../components/member-label.js";
 import { listOps, upsertOps, deleteOps, subscribeOps } from "../db.js";
 import { openMemberCard } from "../components/member-card.js";
 
@@ -34,6 +34,10 @@ export function renderWSTable({ container, kind, shift, date, memberIndex, onCou
       getLabel: (row) => buildMemberLabel(memberIndex.map.get(String(row.kucode)), row.name),
     },
     { key: "team", label: "조", type: "text", readonly: true, width: "60px" },
+    {
+      key: "skills", label: "M/A/P", type: "label", width: "64px",
+      getLabel: (row) => buildSkillChipsLabel(memberIndex.map.get(String(row.kucode))),
+    },
     { key: "note", label: "비고", type: "text" },
   ];
 
@@ -55,7 +59,7 @@ export function renderWSTable({ container, kind, shift, date, memberIndex, onCou
     copyKeys: ["kucode", "name", "team"],
     makeNewRow: () => ({ id: "" }),
     emptyText: "쿠코드를 입력하거나 엑셀에서 붙여넣으세요.",
-    onCommit: async (row, key, value, prevSnapshot) => {
+    onCommit: async (row, key, value, prevSnapshot, opts) => {
       const ku = String(row.kucode || "").trim();
       // 쿠코드 비우면 → DB에서 삭제 + 다른 컬럼 클리어
       if (key === "kucode" && !ku) {
@@ -68,7 +72,12 @@ export function renderWSTable({ container, kind, shift, date, memberIndex, onCou
         refreshCount();
         return { patch: { name: "", team: "" } };
       }
-      if (!ku) return {}; // 쿠코드 없으면 silent
+      if (!ku) {
+        if (!opts?.bulk && key !== "kucode" && String(value || "").trim()) {
+          return { error: "쿠코드를 먼저 입력하세요." };
+        }
+        return {};
+      }
       if (key === "kucode") {
         const fill = autofillFromMaster(memberIndex, ku);
         if (fill) { row.name = fill.name; row.team = fill.team; }

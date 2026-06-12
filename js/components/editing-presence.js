@@ -91,7 +91,8 @@ export async function subscribeEditing(scope, callback) {
 
 // RTDB path 는 . # $ [ ] / 금지.
 // 충돌 방지를 위해 각 금지 문자를 고유한 escape 시퀀스로 치환.
-// "오토백 1.2" → "오토백_1_dt_2",  "오토백 12" → "오토백_12"  (구분됨)
+// 공백도 고유 토큰(_sp_)을 사용 — "A B" 와 "A_B" 가 절대 충돌하지 않음.
+// "오토백 1.2" → "오토백_sp_1_dt_2",  "오토백 12" → "오토백_sp_12"  (구분됨)
 function escapePath(s) {
   return String(s ?? "")
     .replace(/_/g, "_und_")
@@ -101,5 +102,5 @@ function escapePath(s) {
     .replace(/\[/g, "_ob_")
     .replace(/\]/g, "_cb_")
     .replace(/\//g, "_sl_")
-    .replace(/\s+/g, "_");
+    .replace(/\s+/g, "_sp_");
 }

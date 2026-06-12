@@ -48,10 +48,12 @@ export function makeClock() {
     try { deadlines = await getDeadlines(); } catch { deadlines = []; }
     tick();
     // 실시간 구독: 다른 사용자(Bennett) 가 변경하면 즉시 반영
-    unsubDl = await subscribeDeadlines((items) => {
-      deadlines = items || [];
-      tick();
-    });
+    try {
+      unsubDl = await subscribeDeadlines((items) => {
+        deadlines = items || [];
+        tick();
+      });
+    } catch (e) { console.warn("마감시간 구독 실패", e); }
   })();
 
   timer = setInterval(tick, 1000);
@@ -108,13 +110,14 @@ function parseTimeAt(timeStr, base) {
 }
 
 function formatDiff(ms) {
-  const sign = ms < 0 ? "-" : "";
+  // 남음: "D-1h 30m" / 지남: "D+5m 30s"
+  const pre = ms < 0 ? "D+" : "D-";
   const abs = Math.abs(ms);
   const totalSec = Math.floor(abs / 1000);
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
-  if (h > 0) return `${sign}D${sign === "-" ? "+" : "-"}${h}h ${m}m`;
-  if (m > 0) return `${sign}D${sign === "-" ? "+" : "-"}${m}m ${String(s).padStart(2,"0")}s`;
-  return `${sign}D${sign === "-" ? "+" : "-"}${s}s`;
+  if (h > 0) return `${pre}${h}h ${m}m`;
+  if (m > 0) return `${pre}${m}m ${String(s).padStart(2, "0")}s`;
+  return `${pre}${s}s`;
 }

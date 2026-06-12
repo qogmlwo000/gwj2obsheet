@@ -76,9 +76,15 @@ function renderMenu(items, close) {
         const sr = subEl.getBoundingClientRect();
         let left = r.right - 4;
         if (left + sr.width > window.innerWidth) left = r.left - sr.width + 4;
+        // 상하 화면 이탈 보정 — 메뉴가 화면 아래/위로 잘리지 않게 클램프
+        let top = r.top;
+        if (top + sr.height > window.innerHeight - 8) top = window.innerHeight - sr.height - 8;
+        if (top < 8) top = 8;
         subEl.style.position = "fixed";
         subEl.style.left = `${left}px`;
-        subEl.style.top = `${r.top}px`;
+        subEl.style.top = `${top}px`;
+        subEl.style.maxHeight = `${window.innerHeight - 16}px`;
+        subEl.style.overflowY = "auto";
       });
       row.addEventListener("mouseleave", (e) => {
         // 자식 메뉴 위로 이동한 경우는 유지

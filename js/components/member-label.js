@@ -107,7 +107,43 @@ export function buildMemberLabel(member, fallbackName = "") {
   else classes.push("lbl-plain");
   if (role === "temp") classes.push("lbl-temp");
 
-  return { html: escape(text), classes, plainText: text };
+  // 하이스킬러 표시 — 이름 옆 ⭐ 배지
+  const isHiSkiller = hi.length > 0;
+  const badge = isHiSkiller
+    ? `<span class="hi-badge" title="하이스킬: ${escape(hi.join(", "))}">⭐</span>`
+    : "";
+
+  return { html: badge + escape(text), classes, plainText: text };
+}
+
+// ── 팩가능자 표시 (M/A/P) ──
+// 메뉴얼 = 초록 / 오토백 = 파랑 / AGV = 분홍 색 블록.
+export function buildSkillFlags(member) {
+  const hi = Array.isArray(member?.hiSkill) ? member.hiSkill : [];
+  const sp = Array.isArray(member?.special) ? member.special : [];
+  return {
+    manual:  hi.includes("메뉴얼팩") || hi.includes("메뉴얼"),
+    autobag: hi.includes("오토백"),
+    agv:     sp.includes("AGV"),
+  };
+}
+
+// 그리드 label 컬럼용 — M/A/P 색 블록 3개 (가능: 채움 / 불가: 빈 칸)
+export function buildSkillChipsLabel(member) {
+  if (!member || (member.role !== "perm" && member.role !== "temp")) {
+    return { html: "", classes: ["lbl-plain"], plainText: "" };
+  }
+  const f = buildSkillFlags(member);
+  const dot = (on, cls, label) =>
+    `<span class="skill-dot ${cls}${on ? " on" : ""}" title="${label}: ${on ? "가능" : "—"}"></span>`;
+  const html =
+    `<span class="skill-dots">` +
+    dot(f.manual, "m", "메뉴얼") +
+    dot(f.autobag, "a", "오토백") +
+    dot(f.agv, "p", "AGV") +
+    `</span>`;
+  const plain = [f.manual && "메뉴얼", f.autobag && "오토백", f.agv && "AGV"].filter(Boolean).join(",");
+  return { html, classes: ["lbl-plain", "skill-cell"], plainText: plain };
 }
 
 function escape(s) {

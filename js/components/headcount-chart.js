@@ -142,9 +142,9 @@ function renderSVG(points, mode) {
     }));
   }
 
-  // 라인 그리기 + 영역 채움
-  const ratePath = pathFor(points.map((p, i) => [xAt(i), yAt(p.rate)]));
-  const permPath = pathFor(points.map((p, i) => [xAt(i), yAt(p.permPct)]));
+  // 라인 그리기 — 데이터 없는 구간(null)은 선을 끊음 (0% 로 그려지는 것 방지)
+  const ratePath = pathFor(points.map((p, i) => [xAt(i), Number.isFinite(p.rate) ? yAt(p.rate) : NaN]));
+  const permPath = pathFor(points.map((p, i) => [xAt(i), Number.isFinite(p.permPct) ? yAt(p.permPct) : NaN]));
 
   // 채용률 (빨강)
   svg.appendChild(mkSvg("path", { d: ratePath, class: "hc-line hc-line-rate", fill: "none" }));
@@ -176,9 +176,14 @@ function renderSVG(points, mode) {
 }
 
 function pathFor(pts) {
-  if (!pts.length) return "";
-  let d = `M ${pts[0][0]} ${pts[0][1]}`;
-  for (let i = 1; i < pts.length; i++) d += ` L ${pts[i][0]} ${pts[i][1]}`;
+  // 비유한(NaN) 좌표에서 패스를 끊고 다음 유효 점에서 M 으로 재시작
+  let d = "";
+  let pen = false;
+  for (const [x, y] of pts) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) { pen = false; continue; }
+    d += pen ? ` L ${x} ${y}` : `${d ? " " : ""}M ${x} ${y}`;
+    pen = true;
+  }
   return d;
 }
 

@@ -7,6 +7,7 @@ import { listMaster, getTCPosition, setTCPosition, logAudit, subscribeTCPosition
 import { isAdmin, getSession } from "../auth.js";
 import { showToast } from "../toast.js";
 import { openContextMenu, closeContextMenu } from "../components/context-menu.js";
+import { captureElement, downloadBlob } from "../capture.js";
 
 // 포지션 정의
 const MANAGER_SLOTS = [
@@ -91,7 +92,11 @@ export async function renderTCPosTab(root, ctx) {
     listMaster(shift, "captain"),
     listMaster(shift, "manager"),
   ]);
-  const allTCs = [...managers, ...captains];
+  // role 태깅 — 피커에서 Manager / Captain 구분 표시용 (마스터 행에는 role 필드가 없음)
+  const allTCs = [
+    ...managers.map((m) => ({ ...m, role: "manager" })),
+    ...captains.map((c) => ({ ...c, role: "captain" })),
+  ];
 
   let data = await getTCPosition(shift, dateInput.value);
   if (!data || !data.positions) data = { positions: {}, managers: [] };
@@ -282,8 +287,14 @@ export async function renderTCPosTab(root, ctx) {
       ex.appendChild(chip);
     });
 
-    // 닫기 / 저장
-    const close = () => { pickerOpen = false; backdrop.remove(); };
+    // 닫기 / 저장 (ESC 포함)
+    const onEsc = (e) => { if (e.key === "Escape") close(); };
+    const close = () => {
+      document.removeEventListener("keydown", onEsc);
+      pickerOpen = false;
+      backdrop.remove();
+    };
+    document.addEventListener("keydown", onEsc);
     modal.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", close));
     backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
     modal.querySelector("[data-save]").addEventListener("click", async () => {
@@ -334,21 +345,8 @@ export async function renderTCPosTab(root, ctx) {
     try {
       captureBtn.disabled = true;
       captureBtn.textContent = "캡처 중…";
-      const lib = await ensureHtml2Canvas();
-      const target = board;
-      // 흰 배경(라이트) / 다크 배경(다크) 적용해서 깔끔하게
-      const isDark = document.documentElement.getAttribute("data-theme") === "dark";
-      const canvas = await lib(target, {
-        backgroundColor: isDark ? "#0d1117" : "#ffffff",
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      });
-      const dataUrl = canvas.toDataURL("image/png");
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      a.download = `TC-포지션_${shift.toUpperCase()}_${dateInput.value}.png`;
-      a.click();
+      const blob = await captureElement(board);
+      downloadBlob(blob, `TC-포지션_${shift.toUpperCase()}_${dateInput.value}.png`);
       showToast("캡처 완료", "success");
     } catch (e) {
       console.error(e);
@@ -359,22 +357,11 @@ export async function renderTCPosTab(root, ctx) {
     }
   }
 
-  return () => { if (unsubTC) try { unsubTC(); } catch {} };
-}
-
-// html2canvas 동적 로드 (CDN)
-let _html2canvasPromise = null;
-async function ensureHtml2Canvas() {
-  if (window.html2canvas) return window.html2canvas;
-  if (_html2canvasPromise) return _html2canvasPromise;
-  _html2canvasPromise = new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-    s.onload = () => resolve(window.html2canvas);
-    s.onerror = () => reject(new Error("html2canvas 로드 실패 (인터넷 연결 확인)"));
-    document.head.appendChild(s);
-  });
-  return _html2canvasPromise;
+  return () => {
+    if (unsubTC) try { unsubTC(); } catch {}
+    // "한 장으로 보기" 모드가 켜진 채 탭을 떠나도 잔류하지 않도록
+    document.body.classList.remove("tc-fullscreen");
+  };
 }
 
 function todayStr() {

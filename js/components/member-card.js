@@ -29,10 +29,12 @@ export async function openMemberCard(member, ctx) {
         <div class="mc-stat">
           <div class="mc-stat-label">평균 PACK HTP</div>
           <div class="mc-stat-value" data-stat="pack-htp">—</div>
+          <div class="mc-stat-sub">RAW 탭 준비 중</div>
         </div>
         <div class="mc-stat">
           <div class="mc-stat-label">평균 PICK HTP</div>
           <div class="mc-stat-value" data-stat="pick-htp">—</div>
+          <div class="mc-stat-sub">RAW 탭 준비 중</div>
         </div>
       </div>
 
@@ -57,8 +59,16 @@ export async function openMemberCard(member, ctx) {
   backdrop.appendChild(modal);
   root.appendChild(backdrop);
 
-  modal.querySelector(".mc-close").addEventListener("click", () => backdrop.remove());
-  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.remove(); });
+  const closeCard = () => { document.removeEventListener("keydown", onEsc); backdrop.remove(); };
+  const onEsc = (e) => {
+    if (e.key !== "Escape") return;
+    if (document.querySelector(".dialog-modal")) return; // 확인 다이얼로그가 위에 있으면 무시
+    closeCard();
+  };
+  document.addEventListener("keydown", onEsc);
+
+  modal.querySelector(".mc-close").addEventListener("click", closeCard);
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) closeCard(); });
 
   // 자주 들어가던 라인 집계 + 특이사항 로드
   await Promise.all([
@@ -74,7 +84,7 @@ export async function openMemberCard(member, ctx) {
     try {
       await setSpecialNote(member.kucode || member.id, noteEl.value, getSession()?.nickname);
       showToast("특이사항 저장됨", "success");
-      backdrop.remove();
+      closeCard();
     } catch (e) {
       console.error(e);
       showToast("저장 실패", "error");

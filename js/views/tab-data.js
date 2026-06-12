@@ -102,6 +102,13 @@ export async function renderDataTab(root, ctx, params) {
 
   const cur = SUBS.find((s) => s.id === subId) || SUBS[0];
 
+  // 그리드는 아래에서 생성 — 중복 제거/비우기 후엔 재렌더 대신 데이터만 갱신
+  // (전체 재렌더는 기존 구독·grid 리스너를 정리하지 못해 누수가 생김)
+  let grid = null;
+  const refreshRows = async () => {
+    if (grid) grid.setRows(await listMaster(shift, cur.id));
+  };
+
   const actionBar = document.createElement("div");
   actionBar.className = "action-bar";
 
@@ -135,9 +142,7 @@ export async function renderDataTab(root, ctx, params) {
   dedupeBtn.className = "btn dedupe-btn";
   dedupeBtn.innerHTML = "🧹 중복 제거";
   dedupeBtn.title = "같은 정보가 중복 입력된 행을 정리합니다";
-  dedupeBtn.addEventListener("click", () => runDedupe(shift, cur.id, () =>
-    renderDataTab(root, ctx, params)
-  ));
+  dedupeBtn.addEventListener("click", () => runDedupe(shift, cur.id, refreshRows));
   actionBar.appendChild(dedupeBtn);
 
   if (isAdmin()) {
@@ -157,7 +162,7 @@ export async function renderDataTab(root, ctx, params) {
       clearNicknameCache();
       clearMemberIndex();
       showToast("삭제 완료", "success");
-      renderDataTab(root, ctx, params);
+      await refreshRows();
     });
     actionBar.appendChild(wipe);
   }
@@ -173,7 +178,7 @@ export async function renderDataTab(root, ctx, params) {
   // 데이터 로드
   const initialRows = await listMaster(shift, cur.id);
 
-  const grid = createGrid({
+  grid = createGrid({
     container: gridHost,
     columns: COLUMNS[cur.id],
     rows: initialRows,

@@ -587,6 +587,11 @@ a:hover { text-decoration: underline; }
   box-shadow: inset 0 0 0 2px var(--danger);
   background: rgba(225, 90, 90, .08);
 }
+.grid .cell-multi.error {
+  box-shadow: inset 0 0 0 2px var(--danger);
+  background: rgba(225, 90, 90, .08);
+  border-radius: 6px;
+}
 .grid .cell-multi {
   width: 100%;
   min-width: 140px;
@@ -642,8 +647,9 @@ a:hover { text-decoration: underline; }
 
 /* ============== Multi-select dropdown ============== */
 .multi-popover {
-  position: absolute;
-  z-index: 100;
+  /* viewport 좌표(getBoundingClientRect)로 배치하므로 fixed — 스크롤 시 어긋남 방지 */
+  position: fixed;
+  z-index: 260;
   min-width: 160px;
   padding: 6px;
   background: var(--surface);
@@ -1173,24 +1179,32 @@ td.cell-label-td {
 td.cell-label-td:hover { filter: brightness(.94); }
 
 /* 평범한 텍스트 (라벨 없는 일반 사원/단기직) */
-td.lbl-plain { background: transparent; color: var(--text); }
-td.lbl-temp  { font-style: italic; }
+td.lbl-plain, .lbl.lbl-plain { background: transparent; color: var(--text); }
+td.lbl-temp, .lbl.lbl-temp   { font-style: italic; }
+
+/* 공유 보드 등에서 쓰는 span 형태 라벨 칩 (그리드의 td 라벨과 같은 색 규칙) */
+.lbl:not(.lbl-plain) {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 7px;
+  line-height: 1.5;
+}
 
 /* 메뉴얼팩 = 초록 */
-td.lbl-manual  { background: #16a34a; color: #fff; }
+td.lbl-manual, .lbl.lbl-manual   { background: #16a34a; color: #fff; }
 /* 오토백 = 파랑 */
-td.lbl-autobag { background: #2563eb; color: #fff; }
+td.lbl-autobag, .lbl.lbl-autobag { background: #2563eb; color: #fff; }
 /* 집품 = 보라 */
-td.lbl-pick    { background: #9333ea; color: #fff; }
+td.lbl-pick, .lbl.lbl-pick       { background: #9333ea; color: #fff; }
 /* 워터 hiSkill — 셀 가운데에만 가로 띠 파도, 이름은 또렷하게 */
-td.lbl-water {
+td.lbl-water, .lbl.lbl-water {
   background: rgba(6, 182, 212, .14);
   color: var(--text);
   position: relative;
   overflow: hidden;
   isolation: isolate;
 }
-td.lbl-water::after {
+td.lbl-water::after, .lbl.lbl-water::after {
   content: "";
   position: absolute;
   left: 0; right: 0;
@@ -1213,10 +1227,41 @@ td.lbl-water::after {
 /* 라벨 텍스트는 띠 위에 떠 있도록 */
 td.lbl-water .cell-label { position: relative; z-index: 1; font-weight: 700; }
 /* 캡틴 + 매니저 = 빨강 */
-td.lbl-captain { background: #dc2626; color: #fff; }
-td.lbl-manager { background: #dc2626; color: #fff; }
+td.lbl-captain, .lbl.lbl-captain { background: #dc2626; color: #fff; }
+td.lbl-manager, .lbl.lbl-manager { background: #dc2626; color: #fff; }
 /* PS = 노랑 */
-td.lbl-ps      { background: #facc15; color: #1a1300; }
+td.lbl-ps, .lbl.lbl-ps           { background: #facc15; color: #1a1300; }
+
+/* ----------- 하이스킬러 배지 (이름 옆 ⭐) ----------- */
+.hi-badge {
+  display: inline-block;
+  margin-right: 3px;
+  font-size: 11px;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, .25));
+  cursor: help;
+}
+
+/* ----------- 팩가능자 M/A/P 색 블록 (메뉴얼=초록 / 오토백=파랑 / AGV=분홍) ----------- */
+.skill-dots {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  justify-content: center;
+}
+.skill-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  cursor: help;
+}
+.skill-dot.m.on { background: #4ade80; border-color: #16a34a; }
+.skill-dot.a.on { background: #60a5fa; border-color: #2563eb; }
+.skill-dot.p.on { background: #f9a8d4; border-color: #ec4899; }
+td.skill-cell .cell-label { min-height: 28px; }
+td.skill-cell { background: transparent; }
 /* 선택된 행이라도 라벨 셀은 본인 배경 우선 */
 .grid tbody tr.row-selected td.cell-label-td { filter: brightness(.92); }
 /* 라벨 셀 hover 시 grid hover 색상 덮지 않도록 */
@@ -1343,8 +1388,8 @@ td.lbl-ps      { background: #facc15; color: #1a1300; }
 }
 .date-input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 
-/* ----------- PACK / PICK 카드 — 4컬럼(쿠코드/성함/조/비고) 모두 표시 ----------- */
-.pp-card { flex: 0 0 480px; }                 /* 카드 폭 380→480 */
+/* ----------- PACK / PICK 카드 — 5컬럼(쿠코드/성함/조/M·A·P/비고) 모두 표시 ----------- */
+.pp-card { flex: 0 0 520px; }                 /* 카드 폭 480→520 (M/A/P 컬럼 추가) */
 .pp-card .grid { font-size: 12.5px; min-width: 0; }
 .pp-card .grid thead th { padding: 8px 6px; font-size: 11px; }
 .pp-card .cell-input { padding: 7px 6px; font-size: 12.5px; }
@@ -1359,7 +1404,8 @@ td.lbl-ps      { background: #facc15; color: #1a1300; }
 .pp-card .grid thead th:nth-child(2)  { width: 70px;  min-width: 70px;  }   /* 쿠코드 */
 .pp-card .grid thead th:nth-child(3)  { width: 110px; min-width: 110px; }   /* 성함  */
 .pp-card .grid thead th:nth-child(4)  { width: 50px;  min-width: 50px;  }   /* 조    */
-.pp-card .grid thead th:nth-child(5)  { width: auto;  min-width: 100px; }   /* 비고  */
+.pp-card .grid thead th:nth-child(5)  { width: 56px;  min-width: 56px;  }   /* M/A/P */
+.pp-card .grid thead th:nth-child(6)  { width: auto;  min-width: 90px;  }   /* 비고  */
 
 /* ----------- Audit 알림 패널 (우하단 슬라이드) ----------- */
 .audit-panel {
@@ -1955,6 +2001,12 @@ body.tc-fullscreen .tc-board { padding: 12px; }
 .mc-stat-value.alert {
   color: var(--danger);
 }
+.mc-stat-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  opacity: .7;
+}
 .mc-frequent {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
 }
@@ -2005,7 +2057,9 @@ body.tc-fullscreen .tc-board { padding: 12px; }
   .shell-tab { padding: 6px 8px; font-size: 12px; }
   .side-nav { width: 140px; }
   .pp-side { width: 160px; }
-  .pp-card { flex: 0 0 300px; }
+  /* 좁은 화면: 카드 폭 축소 + 카드 안 가로 스크롤 허용 (컬럼 잘림 방지) */
+  .pp-card { flex: 0 0 380px; }
+  .pp-card .grid-scroll { overflow-x: auto; }
   .shell-brand .shift-pill { display: none; }
   .shift-cards { grid-template-columns: 1fr; }
   .snop-wrap { display: none; }

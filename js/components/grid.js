@@ -389,6 +389,10 @@ export function createGrid(opts) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "cell-multi";
+    if (row.__errors && row.__errors[col.key]) {
+      btn.classList.add("error");
+      btn.title = row.__errors[col.key];
+    }
     const renderChips = () => {
       btn.innerHTML = "";
       const arr = row[col.key] || [];
@@ -509,12 +513,13 @@ export function createGrid(opts) {
     const matrix = lines.map((l) => l.split("\t"));
 
     // 2) 모든 행에 대해 동기적으로 데이터 입력 후 한 번만 render
+    // 시작 시점의 visible 스냅샷을 1회 캡처 — 정렬/필터 활성 시에도 대상 행이 어긋나지 않음
+    const baseVisible = visibleRows();
     const targets = []; // { row, fields: [{key, value}] }
     for (let r = 0; r < matrix.length; r++) {
-      const visible = visibleRows();
       const targetVi = vi + r;
       let row;
-      if (targetVi < visible.length) row = visible[targetVi];
+      if (targetVi < baseVisible.length) row = baseVisible[targetVi];
       else { row = makeNewRow(); rows.push(row); }
 
       const fields = [];
@@ -567,7 +572,6 @@ export function createGrid(opts) {
     render();
 
     // 7) bulk 완료 알림 — 부모(예: pack-pick-grid)가 dup/총계 등 일괄 갱신
-    if (typeof opts.onBulkDone === "function") opts.onBulkDone();
     if (typeof onBulkPasteEnd === "function") {
       try { onBulkPasteEnd(targets.map((t) => t.row)); } catch (e) { console.warn(e); }
     }

@@ -5,6 +5,7 @@ import { renderHeadcountDashboard } from "../components/headcount-dashboard.js";
 import { renderHeadcountChart } from "../components/headcount-chart.js";
 import { confirmDialog } from "../components/dialog.js";
 import { showToast } from "../toast.js";
+import { captureElement, copyBlobToClipboard, downloadBlob } from "../capture.js";
 
 export async function renderHeadcountTab(root, ctx) {
   root.innerHTML = "";
@@ -184,58 +185,6 @@ export async function renderHeadcountTab(root, ctx) {
     try { hcDash?.destroy(); } catch {}
     try { hcChart?.destroy(); } catch {}
   };
-}
-
-// ──────────────────────────────────────────────────────────
-// 캡처 유틸 — html2canvas 동적 로드, 실패 시 SVG foreignObject 폴백
-// ──────────────────────────────────────────────────────────
-let _h2cPromise = null;
-function loadHtml2Canvas() {
-  if (window.html2canvas) return Promise.resolve(window.html2canvas);
-  if (_h2cPromise) return _h2cPromise;
-  _h2cPromise = new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
-    s.async = true;
-    s.onload = () => resolve(window.html2canvas);
-    s.onerror = () => reject(new Error("html2canvas 로드 실패 (네트워크 확인)"));
-    document.head.appendChild(s);
-  });
-  return _h2cPromise;
-}
-
-async function captureElement(el) {
-  const h2c = await loadHtml2Canvas();
-  const bg = getComputedStyle(document.body).backgroundColor || "#ffffff";
-  const canvas = await h2c(el, {
-    backgroundColor: bg,
-    scale: 2,                // 고해상도 (Retina/4K 보기 좋게)
-    useCORS: true,
-    logging: false,
-    windowWidth:  el.scrollWidth,
-    windowHeight: el.scrollHeight,
-  });
-  return await new Promise((resolve, reject) => {
-    canvas.toBlob((b) => b ? resolve(b) : reject(new Error("toBlob 실패")), "image/png");
-  });
-}
-
-async function copyBlobToClipboard(blob) {
-  if (!navigator.clipboard || !window.ClipboardItem) {
-    throw new Error("이 브라우저는 클립보드 이미지 복사를 지원하지 않습니다");
-  }
-  await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-}
-
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function todayStr() {

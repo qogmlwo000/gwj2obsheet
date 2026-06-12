@@ -155,16 +155,26 @@ export async function openSettings() {
   backdrop.appendChild(modal);
   root.appendChild(backdrop);
 
+  const onEsc = (e) => {
+    if (e.key !== "Escape") return;
+    if (document.querySelector(".dialog-modal")) return; // 확인 다이얼로그가 위에 있으면 무시
+    closeModal();
+  };
+  const closeModal = () => { document.removeEventListener("keydown", onEsc); backdrop.remove(); };
+  document.addEventListener("keydown", onEsc);
+
   modal.querySelectorAll("[data-close]").forEach((b) =>
-    b.addEventListener("click", () => backdrop.remove())
+    b.addEventListener("click", closeModal)
   );
   backdrop.addEventListener("click", (e) => {
-    if (e.target === backdrop) backdrop.remove();
+    if (e.target === backdrop) closeModal();
   });
 
   // ---------- 마감시간 ----------
   let deadlines = await getDeadlines();
   function renderDl() {
+    // 시간순 정렬 (in-place — 삭제 인덱스도 정렬된 순서 기준)
+    deadlines.sort((a, b) => String(a.time).localeCompare(String(b.time)));
     const list = modal.querySelector("#dl-list");
     list.innerHTML = "";
     if (deadlines.length === 0) {
@@ -197,6 +207,10 @@ export async function openSettings() {
     const label = labelInput.value.trim();
     const time = timeInput.value;
     if (!label || !time) return;
+    if (deadlines.some((d) => d.time === time && d.label === label)) {
+      showToast("이미 같은 마감시간이 등록돼 있습니다", "error");
+      return;
+    }
     deadlines.push({ id: crypto.randomUUID(), label, time });
     await setDeadlines(deadlines);
     labelInput.value = ""; timeInput.value = "";

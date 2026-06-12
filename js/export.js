@@ -2,7 +2,7 @@
 // Excel 호환을 위해 UTF-8 BOM 을 prefix 로 추가해 한글 깨짐 방지.
 
 import {
-  listMaster, listFlow, listOps, listShare, getTCPosition,
+  listMaster, listFlow, listOps, listShare,
 } from "./db.js";
 
 const BOM = "﻿";
@@ -132,21 +132,6 @@ export async function exportShareCsv(shift, kind) {
     lines.push(SHARE_HEADERS.map((h) => csvCell(row[h] ?? "")).join(","));
   }
   downloadCsv(`gw2ob-${shift}-share-${kind}-${ymd()}.csv`, lines.join("\r\n"));
-}
-
-// ── TC 포지션 (현재 날짜) ──
-export async function exportTCPositionCsv(shift, date) {
-  const data = await getTCPosition(shift, date);
-  const labels = ["포지션ID", "쿠코드", "부가업무"];
-  const lines = [BOM + labels.map(csvCell).join(",")];
-  for (const [slotId, info] of Object.entries(data.positions || {})) {
-    lines.push([
-      csvCell(slotId),
-      csvCell(info.kucode || ""),
-      csvCell((info.extras || []).join(",")),
-    ].join(","));
-  }
-  downloadCsv(`gw2ob-${shift}-tcpos-${date}.csv`, lines.join("\r\n"));
 }
 
 // ── 날짜 범위 유틸 ──

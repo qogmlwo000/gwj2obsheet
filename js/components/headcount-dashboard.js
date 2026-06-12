@@ -206,14 +206,21 @@ export function renderHeadcountDashboard({ container, shift, getDate, onActualCh
     }, 350);
   }
 
+  // 빠른 날짜 전환 시 늦게 도착한 구독이 살아남지 않도록 epoch 토큰 가드
+  let loadEpoch = 0;
+
   async function loadAndSubscribe() {
+    const epoch = ++loadEpoch;
     currentDate = getDate();
-    state = normalize(await getHeadcount(shift, currentDate));
+    const loaded = await getHeadcount(shift, currentDate);
+    if (epoch !== loadEpoch) return; // 이미 다른 날짜로 전환됨
+    state = normalize(loaded);
     render();
     // 헤드카운트 자체 구독
     if (unsub) { try { unsub(); } catch {} unsub = null; }
     let first = true;
-    unsub = await subscribeHeadcount(shift, currentDate, (data) => {
+    const u = await subscribeHeadcount(shift, currentDate, (data) => {
+      if (epoch !== loadEpoch) return; // 옛 날짜 구독의 늦은 콜백 무시
       if (first) { first = false; return; }
       if (saving) return; // 내가 방금 저장한 변경은 무시
       // 다른 사용자가 변경한 값 — 입력 중인 인풋이 없으면 통째로 반영
@@ -222,15 +229,23 @@ export function renderHeadcountDashboard({ container, shift, getDate, onActualCh
       state = normalize(data);
       render();
     });
+    if (epoch !== loadEpoch) { try { u(); } catch {} return; }
+    unsub = u;
 
     // ─ 자동 동기화: 다른 탭의 데이터가 바뀌면 Actual 재계산 ─
     closeSourceSubs();
-    const onChange = () => scheduleAutoSync(150);
-    unsubPack    = await subscribeOps(shift, "pack", currentDate, onChange);
-    unsubPick    = await subscribeOps(shift, "pick", currentDate, onChange);
-    unsubNewTemp = await subscribeFlow(shift, "newTemp", currentDate, onChange);
-    unsubCaptain = await subscribeFlow(shift, "captain", currentDate, onChange);  // ★ FLOW>TEAM CAPTAIN
-    unsubTC      = await subscribeTCPosition(shift, currentDate, onChange);
+    const onChange = () => { if (epoch === loadEpoch) scheduleAutoSync(150); };
+    const subs = [];
+    subs.push(await subscribeOps(shift, "pack", currentDate, onChange));
+    subs.push(await subscribeOps(shift, "pick", currentDate, onChange));
+    subs.push(await subscribeFlow(shift, "newTemp", currentDate, onChange));
+    subs.push(await subscribeFlow(shift, "captain", currentDate, onChange));  // ★ FLOW>TEAM CAPTAIN
+    subs.push(await subscribeTCPosition(shift, currentDate, onChange));
+    if (epoch !== loadEpoch) {
+      subs.forEach((fn) => { if (typeof fn === "function") try { fn(); } catch {} });
+      return;
+    }
+    [unsubPack, unsubPick, unsubNewTemp, unsubCaptain, unsubTC] = subs;
 
     // 초기 자동 동기화도 한 번 실행
     scheduleAutoSync(300);
@@ -257,8 +272,10 @@ export function renderHeadcountDashboard({ container, shift, getDate, onActualCh
       scheduleAutoSync(1500);
       return;
     }
+    const epochAt = loadEpoch;
     try {
       const computed = await computeActualFromSources(shift, currentDate);
+      if (epochAt !== loadEpoch) return; // 계산 중 날짜가 바뀜 — 결과 폐기
       // 변경 사항 검사 — 동일하면 저장 스킵
       const newActual = {
         tc: computed.tc.actual,

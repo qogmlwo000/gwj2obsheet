@@ -22,6 +22,14 @@ export async function openAuditPanel({ scope, target, shift, title }) {
   document.body.appendChild(panel);
   panel.querySelector(".audit-close").addEventListener("click", closeAuditPanel);
 
+  // ESC 로 닫기 (다이얼로그/컨텍스트 메뉴가 위에 떠있으면 그쪽 우선)
+  escHandler = (e) => {
+    if (e.key !== "Escape") return;
+    if (document.querySelector(".dialog-modal") || document.querySelector(".ctx-menu")) return;
+    closeAuditPanel();
+  };
+  document.addEventListener("keydown", escHandler);
+
   try {
     const entries = await queryAudit({ scope, target, shift, limit: 50 });
     const list = panel.querySelector(".audit-list");
@@ -36,7 +44,10 @@ export async function openAuditPanel({ scope, target, shift, title }) {
   }
 }
 
+let escHandler = null;
+
 export function closeAuditPanel() {
+  if (escHandler) { document.removeEventListener("keydown", escHandler); escHandler = null; }
   document.querySelectorAll(".audit-panel").forEach((el) => el.remove());
 }
 

@@ -3,7 +3,7 @@
 // 실시간 구독: subscribeFlow 로 다른 사용자가 추가/수정/삭제한 행을 자동 반영.
 
 import { createGrid } from "../components/grid.js";
-import { listMaster, listFlow, upsertFlow, deleteFlow, upsertMaster, subscribeFlow, getTCPosition } from "../db.js";
+import { listMaster, listFlow, upsertFlow, deleteFlow, upsertMaster, subscribeFlow } from "../db.js";
 import { isAdmin, getSession } from "../auth.js";
 import { showToast } from "../toast.js";
 import { confirmDialog } from "../components/dialog.js";
@@ -186,8 +186,13 @@ export async function renderFlowTab(root, ctx, params) {
             row.gender = "";
             return { patch: { name: "", team: "", nickname: "", position: "", leaveTime: "", gender: "" } };
           }
-          // 쿠코드 입력 안 됐으면 다른 컬럼은 silent (저장 안 함)
-          if (!String(row.kucode || "").trim()) return {};
+          // 쿠코드 없이 다른 컬럼만 입력 — 저장되지 않음을 안내
+          if (!String(row.kucode || "").trim()) {
+            if (key !== "kucode" && String(value || "").trim()) {
+              return { error: "쿠코드를 먼저 입력하세요." };
+            }
+            return {};
+          }
           // 쿠코드 변경/입력 시 자동 채움
           if (key === "kucode") {
             const patch = await autofill(cur.id, value, masters);
