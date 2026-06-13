@@ -36,14 +36,26 @@ export const PACK_GROUPS_DEF = [
   { id: "ACE",          label: "ACE",          variant: "manual"  },
   { id: "메뉴얼 멀티",  label: "메뉴얼 멀티",  variant: "manual"  },
 ];
+// 서브(sub)는 문자열 또는 { id, label } — id 는 저장값(subType), label 은 화면 표시.
 export const PICK_GROUPS_DEF = [
   { id: "6.1F",       label: "6.1F",        variant: "floor", subs: ["싱귤", "멀티"] },
   { id: "6.3F",       label: "6.3F",        variant: "floor", subs: ["싱귤", "멀티"] },
-  { id: "AGV (7.1F)", label: "AGV (7.1F)",  variant: "floor", subs: ["싱귤", "멀티"] },
+  { id: "AGV (7.1F)", label: "7.1F",        variant: "floor", subTitleOnly: true,
+    subs: [{ id: "싱귤", label: "7.1F (AGV)" }, { id: "멀티", label: "7.1F (AS/HV)" }] },
   { id: "7.2F",       label: "7.2F",        variant: "floor", subs: ["싱귤", "멀티"] },
   { id: "7.3F",       label: "7.3F",        variant: "floor", subs: ["싱귤", "멀티"] },
-  { id: "8F",         label: "8F",          variant: "floor", subs: ["오더피커", "8.1", "8.2", "8.3"] },
+  { id: "8F",         label: "8F",          variant: "floor",
+    subs: ["오더피커", { id: "8.1", label: "ES" }, "8.2", "8.3"] },
 ];
+
+// sub 정규화 헬퍼 — 저장값(id) / 표시값(label) / 카드 제목
+export function subIdOf(sub)    { return sub == null ? null : (typeof sub === "object" ? sub.id : sub); }
+export function subLabelOf(sub) { return sub == null ? "" : (typeof sub === "object" ? sub.label : sub); }
+export function cardTitleOf(group, sub) {
+  if (sub == null) return group.label;
+  const sl = subLabelOf(sub);
+  return group.subTitleOnly ? sl : `${group.label} · ${sl}`;
+}
 
 // 옛 데이터(과거 라벨 "메뉴얼팩 멀티")를 현재 라벨 ("메뉴얼 멀티") 로 매핑
 export const PACK_GROUP_ALIASES = {
@@ -88,6 +100,26 @@ export function renderPackPickStrip(opts) {
   const visibility = new Map();
   const visKey = (g, s) => `${g}::${s || "_"}`;
 
+  // 한 번에 보이기/숨기기 (체크박스 전체 토글)
+  const showAllBtn = document.createElement("button");
+  showAllBtn.className = "btn ghost pp-side-btn";
+  showAllBtn.textContent = "👁 모두 보이기";
+  showAllBtn.addEventListener("click", () => setAllVisible(true));
+  side.appendChild(showAllBtn);
+  const hideAllBtn = document.createElement("button");
+  hideAllBtn.className = "btn ghost pp-side-btn";
+  hideAllBtn.textContent = "🙈 모두 숨기기";
+  hideAllBtn.addEventListener("click", () => setAllVisible(false));
+  side.appendChild(hideAllBtn);
+
+  function setAllVisible(on) {
+    visibility.forEach((_, k) => visibility.set(k, on));
+    side.querySelectorAll(".pp-vis-row input[type=checkbox]").forEach((cb) => { cb.checked = on; });
+    applyVisibility();
+  }
+
+  side.appendChild(makeSep());
+
   const collapseAllBtn = document.createElement("button");
   collapseAllBtn.className = "btn ghost pp-side-btn";
   collapseAllBtn.textContent = "📕 모두 접기";
@@ -105,7 +137,7 @@ export function renderPackPickStrip(opts) {
       heading.className = "pp-side-group-title";
       heading.textContent = g.label;
       side.appendChild(heading);
-      g.subs.forEach((s) => side.appendChild(makeVisToggle(g.id, s, `${g.label} · ${s}`)));
+      g.subs.forEach((s) => side.appendChild(makeVisToggle(g.id, subIdOf(s), subLabelOf(s))));
     } else {
       side.appendChild(makeVisToggle(g.id, null, g.label));
     }
@@ -268,7 +300,12 @@ export function renderPackPickStrip(opts) {
     return [...rowsArr, ...makeBuffer(MIN_VISIBLE_ROWS - rowsArr.length)];
   }
 
-  function makeCard(group, sub) {
+  function makeCard(group, subDef) {
+    // subDef 는 문자열 또는 {id,label} — 저장값(subId)과 표시(subLabel/제목) 분리
+    const sub = subIdOf(subDef);           // 저장·매칭에 쓰는 값 (subType)
+    const subLabel = subLabelOf(subDef);   // 화면 표시용
+    const cardTitle = cardTitleOf(group, subDef);
+
     const el = document.createElement("section");
     el.className = `pp-card variant-${group.variant || "default"}`;
     el.dataset.gid = group.id;
@@ -280,7 +317,7 @@ export function renderPackPickStrip(opts) {
     const title = document.createElement("div");
     title.className = "pp-card-title";
     title.innerHTML = `
-      <span class="pp-card-name">${escape(group.label)}${sub ? ` · ${escape(sub)}` : ""}</span>
+      <span class="pp-card-name">${escape(cardTitle)}</span>
       <span class="pp-card-count">0 명</span>
     `;
     head.appendChild(title);
@@ -405,16 +442,18 @@ export function renderPackPickStrip(opts) {
         row.id = id;
         row.__editStartUpdatedAt = row.updatedAt || Date.now();
 
-        // 공유 시트 자동 동기화
-        try {
-          await upsertShare(shift, kind, ku, {
-            kucode: ku,
-            name: row.name || "",
-            team: row.team || "",
-            group: group.id,
-            date,
-          });
-        } catch (e) { console.warn("share sync failed", e); }
+        // 공유 시트 자동 동기화 — Perm(계약직) 만 자동 추가 (TEMP·캡틴 제외)
+        if (isPermMember(memberIndex, ku)) {
+          try {
+            await upsertShare(shift, kind, ku, {
+              kucode: ku,
+              name: row.name || "",
+              team: row.team || "",
+              group: group.id,
+              date,
+            });
+          } catch (e) { console.warn("share sync failed", e); }
+        }
 
         // bulk paste 중에는 audit log 스킵 (대량 작성으로 로그 폭주 방지)
         if (!bulkMode) {
@@ -459,13 +498,15 @@ export function renderPackPickStrip(opts) {
               if (!r.id && ids && ids[i]) r.id = ids[i];
               r.__editStartUpdatedAt = Date.now();
             });
-            // 공유 시트도 병렬 처리 (네트워크 round-trip 단축)
-            await Promise.allSettled(valid.map((r) =>
-              upsertShare(shift, kind, String(r.kucode), {
-                kucode: r.kucode, name: r.name || "", team: r.team || "",
-                group: group.id, date,
-              })
-            ));
+            // 공유 시트도 병렬 처리 — Perm(계약직) 만 자동 추가
+            await Promise.allSettled(valid
+              .filter((r) => isPermMember(memberIndex, String(r.kucode)))
+              .map((r) =>
+                upsertShare(shift, kind, String(r.kucode), {
+                  kucode: r.kucode, name: r.name || "", team: r.team || "",
+                  group: group.id, date,
+                })
+              ));
             console.log(`[bulk paste] ${ok}개 / ${batches}배치`);
           } catch (e) {
             console.error("bulk paste failed", e);
@@ -486,7 +527,7 @@ export function renderPackPickStrip(opts) {
       onDelete: async (row) => {
         const ok = await confirmDialog({
           title: "행 삭제", danger: true,
-          message: `${row.name || row.kucode} (${group.label}${sub ? " · " + sub : ""})\n행을 삭제할까요?`,
+          message: `${row.name || row.kucode} (${cardTitle})\n행을 삭제할까요?`,
           yes: "삭제", no: "취소",
         });
         if (!ok) return false;
@@ -524,12 +565,13 @@ export function renderPackPickStrip(opts) {
             label: "Pick 으로 이동",
             icon: "🛒",
             sub: PICK_GROUPS_DEF.flatMap((g) => g.subs.map((s) => ({
-              label: `${g.label} · ${s}`, icon: "→",
-              onClick: () => moveRows(filteredSel.length ? filteredSel : [row], "pick", g.id, s),
+              label: cardTitleOf(g, s), icon: "→",
+              onClick: () => moveRows(filteredSel.length ? filteredSel : [row], "pick", g.id, subIdOf(s)),
             }))),
           },
           { divider: true },
-          { label: "복사 (쿠코드/성함/조)", icon: "📋", onClick: () => copyTSV(filteredSel.length ? filteredSel : [row]) },
+          { label: "복사 (쿠코드 | 성함)", icon: "📋", onClick: () => copyCols(filteredSel.length ? filteredSel : [row], ["kucode", "name"]) },
+          { label: "복사 (쿠코드만)", icon: "📋", onClick: () => copyCols(filteredSel.length ? filteredSel : [row], ["kucode"]) },
           { label: "수정 이력", icon: "📜", onClick: () => openAuditPanel({ scope: `ops:${kind}`, target: row.kucode, shift, title: `${row.kucode} 수정 이력` }) },
           { divider: true },
           {
@@ -685,17 +727,16 @@ export function renderPackPickStrip(opts) {
       syncColVisibility();
       return;
     }
-    const q = searchText.toLowerCase();
+    // 콤마(,)로 여러 명 동시 검색 — 하나라도 매칭되는 카드는 표시
+    const terms = searchText.toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
     cards.forEach((c) => {
       const k = visKey(c.groupId, c.subId);
       const visToggle = visibility.get(k) !== false;
       if (!visToggle) { c.el.style.display = "none"; return; }
-      // 카드 안의 데이터 행 중 매칭이 있는지
       const hasMatch = c.gridApi.getRows().some((row) => {
         if (!row.kucode && !row.name) return false;
-        return String(row.kucode || "").toLowerCase().includes(q) ||
-               String(row.name || "").toLowerCase().includes(q) ||
-               String(row.note || "").toLowerCase().includes(q);
+        const hay = `${row.kucode || ""} ${row.name || ""} ${row.note || ""}`.toLowerCase();
+        return terms.some((t) => hay.includes(t));
       });
       c.el.style.display = hasMatch ? "" : "none";
       c.el.classList.toggle("search-no-match", !hasMatch);
@@ -755,15 +796,17 @@ export function renderPackPickStrip(opts) {
         await upsertOps(shift, targetKind, null, newRow);
         const idx = allRows.findIndex((x) => x === row || x.id === oldId);
         if (idx >= 0) allRows.splice(idx, 1);
-        // shift 가 같은 쪽으로 옮긴 거니 deleteShare 후 새 group 으로 upsertShare
+        // shift 가 같은 쪽으로 옮긴 거니 deleteShare 후 새 group 으로 upsertShare (Perm 만)
         if (ku) {
           try { await deleteShareByKucode(shift, kind, ku); } catch {}
-          try {
-            await upsertShare(shift, targetKind, ku, {
-              kucode: ku, name: newRow.name || "", team: newRow.team || "",
-              group: targetGroup, date,
-            });
-          } catch {}
+          if (isPermMember(memberIndex, ku)) {
+            try {
+              await upsertShare(shift, targetKind, ku, {
+                kucode: ku, name: newRow.name || "", team: newRow.team || "",
+                group: targetGroup, date,
+              });
+            } catch {}
+          }
         }
       } else {
         // 같은 kind 안 이동 — line/floor/subType 만 갱신 (docId 그대로)
@@ -771,7 +814,7 @@ export function renderPackPickStrip(opts) {
         row.floor = (targetKind === "pick") ? targetGroup : null;
         row.subType = targetSub || null;
         await upsertOps(shift, targetKind, row.id, sanitize(row));
-        if (ku) {
+        if (ku && isPermMember(memberIndex, ku)) {
           try {
             await upsertShare(shift, targetKind, ku, {
               kucode: ku, name: row.name || "", team: row.team || "",
@@ -799,10 +842,14 @@ export function renderPackPickStrip(opts) {
     for (const r of targets) await deleteShare(shiftV, kindV, r.id);
   }
 
-  function copyTSV(rows) {
-    const tsv = rows.map((r) => [r.kucode, r.name, r.team || ""].join("\t")).join("\n");
+  // 지정한 컬럼만 TSV 로 복사 (엑셀 붙여넣기 시 각 컬럼이 A,B 셀로 들어감)
+  function copyCols(rows, keys) {
+    const real = rows.filter((r) => r.kucode);
+    const tsv = real.map((r) => keys.map((k) => r[k] ?? "").join("\t")).join("\n");
+    if (!tsv) return;
     navigator.clipboard?.writeText(tsv);
-    showToast("복사 완료", "success");
+    const label = keys.length === 1 ? "쿠코드" : "쿠코드 | 성함";
+    showToast(`${real.length}명 복사 (${label})`, "success");
   }
 
   function cssEscape(s) {
@@ -884,6 +931,12 @@ function sanitize(row) {
   if (!row) return row;
   const { __errors, __dup, __editStartUpdatedAt, ...rest } = row;
   return rest;
+}
+
+// 공유 시트 자동 추가 대상 — Perm(계약직) 만
+function isPermMember(memberIndex, kucode) {
+  const m = memberIndex?.map?.get(String(kucode));
+  return m?.role === "perm";
 }
 
 function escape(s) {

@@ -22,8 +22,8 @@ export function loadXLSX() {
 
 // 카테고리별 시트 컬럼 정의 — tab-data.js 의 그리드 컬럼과 동일한 키/허용값
 const HI_OPTS = ["메뉴얼팩", "오토백", "집품", "워터"];
-const SP_PERM = ["오더피커", "AGV", "워터"];
-const SP_TEMP = ["AGV", "워터"];
+const SP_PERM = ["오더피커", "AGV", "워터", "메뉴얼 멀티", "오토백 멀티"];
+const SP_TEMP = ["AGV", "워터", "메뉴얼 멀티", "오토백 멀티"];
 
 const ROLE_SHEETS = {
   manager: {
@@ -72,6 +72,15 @@ const ROLE_SHEETS = {
       { key: "hiSkill", label: "하이스킬", multi: HI_OPTS, width: 24 },
       { key: "special", label: "특수",     multi: SP_TEMP, width: 18 },
       { key: "note",    label: "비고",     width: 24 },
+    ],
+  },
+  cd: {
+    label: "CD",
+    cols: [
+      { key: "kucode",  label: "쿠코드", required: true, width: 14 },
+      { key: "name",    label: "성함",   required: true, width: 14 },
+      { key: "process", label: "공정",   width: 12 },
+      { key: "note",    label: "비고",   width: 24 },
     ],
   },
 };

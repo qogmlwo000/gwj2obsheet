@@ -67,10 +67,27 @@ export async function renderTCPosTab(root, ctx) {
   const printBtn = document.createElement("button");
   printBtn.className = "btn ghost";
   printBtn.innerHTML = "🖼 한 장으로 보기";
-  printBtn.addEventListener("click", () => {
-    document.body.classList.toggle("tc-fullscreen");
-  });
   head.appendChild(printBtn);
+
+  // 전체화면(한 장으로 보기) 종료용 플로팅 버튼 — 상단바가 숨겨져도 빠져나올 수 있게
+  const exitFsBtn = document.createElement("button");
+  exitFsBtn.className = "tc-exit-fs";
+  exitFsBtn.innerHTML = "✕ 닫기 (ESC)";
+  exitFsBtn.title = "한 장으로 보기 종료";
+  function setFullscreen(on) {
+    document.body.classList.toggle("tc-fullscreen", on);
+    if (on && !exitFsBtn.isConnected) document.body.appendChild(exitFsBtn);
+    else if (!on && exitFsBtn.isConnected) exitFsBtn.remove();
+  }
+  printBtn.addEventListener("click", () => setFullscreen(!document.body.classList.contains("tc-fullscreen")));
+  exitFsBtn.addEventListener("click", () => setFullscreen(false));
+  const onFsKey = (e) => {
+    if (e.key === "Escape" && document.body.classList.contains("tc-fullscreen")) {
+      if (document.querySelector(".tc-picker-modal")) return; // 피커가 위에 있으면 그쪽 우선
+      setFullscreen(false);
+    }
+  };
+  document.addEventListener("keydown", onFsKey);
 
   // 캡처 버튼 — TC 보드만 PNG 로 저장
   const captureBtn = document.createElement("button");
@@ -230,6 +247,7 @@ export async function renderTCPosTab(root, ctx) {
       <div class="modal-body">
         <div class="modal-section">
           <h4>Team Captain 선택</h4>
+          <input type="text" class="tc-picker-search" id="tc-picker-search" placeholder="🔎 닉네임 / 성함 / 쿠코드 검색" autocomplete="off" />
           <div class="tc-picker-list" id="tc-picker-list"></div>
         </div>
         <div class="modal-section">
@@ -248,28 +266,50 @@ export async function renderTCPosTab(root, ctx) {
     let pickedKu = cur.kucode || "";
     const pickedExtras = new Set(cur.extras || []);
 
-    // TC 목록
+    // TC 목록 — 검색 필터 지원
     const list = modal.querySelector("#tc-picker-list");
-    list.innerHTML = `<button class="tc-picker-item ${pickedKu === "" ? "active" : ""}" data-ku="">— 비우기 —</button>`;
-    allTCs.forEach((c) => {
-      const item = document.createElement("button");
-      item.className = "tc-picker-item" + (pickedKu === c.kucode ? " active" : "");
-      item.dataset.ku = c.kucode;
-      item.innerHTML = `
-        <span class="tc-picker-nick">${escape(c.nickname || "?")}</span>
-        <span class="tc-picker-name">${escape(c.name || "")}</span>
-        <span class="tc-picker-meta">${escape(c.role === "manager" ? "Manager" : "Captain")}</span>
-      `;
-      item.addEventListener("click", () => {
-        pickedKu = c.kucode;
-        list.querySelectorAll(".tc-picker-item").forEach((b) => b.classList.toggle("active", b.dataset.ku === pickedKu));
+    const searchEl = modal.querySelector("#tc-picker-search");
+    function renderList(q = "") {
+      const query = q.trim().toLowerCase();
+      const matched = !query ? allTCs : allTCs.filter((c) =>
+        `${c.nickname || ""} ${c.name || ""} ${c.kucode || ""}`.toLowerCase().includes(query)
+      );
+      list.innerHTML = "";
+      const clearBtn = document.createElement("button");
+      clearBtn.className = "tc-picker-item" + (pickedKu === "" ? " active" : "");
+      clearBtn.dataset.ku = "";
+      clearBtn.textContent = "— 비우기 —";
+      clearBtn.addEventListener("click", () => {
+        pickedKu = "";
+        list.querySelectorAll(".tc-picker-item").forEach((b) => b.classList.toggle("active", b.dataset.ku === ""));
       });
-      list.appendChild(item);
-    });
-    list.querySelector("[data-ku='']").addEventListener("click", () => {
-      pickedKu = "";
-      list.querySelectorAll(".tc-picker-item").forEach((b) => b.classList.toggle("active", b.dataset.ku === ""));
-    });
+      list.appendChild(clearBtn);
+      if (!matched.length) {
+        const none = document.createElement("div");
+        none.className = "tc-picker-none";
+        none.textContent = "검색 결과가 없습니다";
+        list.appendChild(none);
+        return;
+      }
+      matched.forEach((c) => {
+        const item = document.createElement("button");
+        item.className = "tc-picker-item" + (pickedKu === c.kucode ? " active" : "");
+        item.dataset.ku = c.kucode;
+        item.innerHTML = `
+          <span class="tc-picker-nick">${escape(c.nickname || "?")}</span>
+          <span class="tc-picker-name">${escape(c.name || "")}</span>
+          <span class="tc-picker-meta">${escape(c.role === "manager" ? "Manager" : "Captain")}</span>
+        `;
+        item.addEventListener("click", () => {
+          pickedKu = c.kucode;
+          list.querySelectorAll(".tc-picker-item").forEach((b) => b.classList.toggle("active", b.dataset.ku === pickedKu));
+        });
+        list.appendChild(item);
+      });
+    }
+    renderList();
+    searchEl.addEventListener("input", () => renderList(searchEl.value));
+    setTimeout(() => searchEl.focus(), 60);
 
     // 부가 업무
     const ex = modal.querySelector("#tc-extras-list");
@@ -359,8 +399,10 @@ export async function renderTCPosTab(root, ctx) {
 
   return () => {
     if (unsubTC) try { unsubTC(); } catch {}
+    document.removeEventListener("keydown", onFsKey);
     // "한 장으로 보기" 모드가 켜진 채 탭을 떠나도 잔류하지 않도록
     document.body.classList.remove("tc-fullscreen");
+    if (exitFsBtn.isConnected) exitFsBtn.remove();
   };
 }
 

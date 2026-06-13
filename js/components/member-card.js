@@ -48,9 +48,9 @@ export async function openMemberCard(member, ctx) {
 
       <div class="modal-section">
         <h4>특이사항</h4>
-        <textarea class="mc-note" rows="3" placeholder="${isAdmin() ? "관리자만 입력할 수 있습니다" : "관리자만 입력 가능합니다"}"></textarea>
+        <textarea class="mc-note" rows="3" placeholder="특이사항을 입력하세요 (모든 사용자 입력 가능)"></textarea>
         <div class="mc-note-actions">
-          <button class="btn primary mc-save" ${isAdmin() ? "" : "disabled"}>💾 저장</button>
+          <button class="btn primary mc-save">💾 저장</button>
         </div>
       </div>
     </div>
@@ -76,11 +76,9 @@ export async function openMemberCard(member, ctx) {
     fillNote(modal, member),
   ]);
 
-  // 저장 핸들러
+  // 저장 핸들러 — 특이사항은 모든 사용자가 입력/수정 가능
   const noteEl = modal.querySelector(".mc-note");
-  if (!isAdmin()) noteEl.readOnly = true;
   modal.querySelector(".mc-save").addEventListener("click", async () => {
-    if (!isAdmin()) return;
     try {
       await setSpecialNote(member.kucode || member.id, noteEl.value, getSession()?.nickname);
       showToast("특이사항 저장됨", "success");

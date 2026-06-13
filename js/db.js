@@ -1184,7 +1184,7 @@ export async function getAllowedNicknames() {
 
 export async function exportShift(shift) {
   const result = { shift, exportedAt: Date.now(), masters: {}, flows: {}, ops: {}, share: {} };
-  for (const role of ["manager", "captain", "ps", "perm", "temp"]) {
+  for (const role of ["manager", "captain", "ps", "perm", "temp", "cd"]) {
     result.masters[role] = await listMaster(shift, role);
   }
   for (const type of ["captain", "ps", "leave", "newTemp"]) {
@@ -1234,7 +1234,7 @@ export async function importShift(shift, payload) {
 export async function wipeShift(shift) {
   // 머지된(Firestore + LS) 목록을 순회 — Firestore 전용 문서도 빠짐없이 삭제.
   // pending 레지스트리는 지우지 않음: 오프라인 중 wipe 해도 복구 시 삭제가 전파됨.
-  for (const role of ["manager", "captain", "ps", "perm", "temp"]) {
+  for (const role of ["manager", "captain", "ps", "perm", "temp", "cd"]) {
     for (const row of await listMaster(shift, role)) await deleteMaster(shift, role, row.id);
     writeLS(masterKey(shift, role), []);
   }

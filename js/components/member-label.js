@@ -8,12 +8,13 @@ let cachedShift = null;
 
 export async function buildMemberIndex(shift, force = false) {
   if (!force && cache && cachedShift === shift) return cache;
-  const [manager, captain, ps, perm, temp] = await Promise.all([
+  const [manager, captain, ps, perm, temp, cd] = await Promise.all([
     listMaster(shift, "manager"),
     listMaster(shift, "captain"),
     listMaster(shift, "ps"),
     listMaster(shift, "perm"),
     listMaster(shift, "temp"),
+    listMaster(shift, "cd"),
   ]);
   const map = new Map();
   manager.forEach((r) => map.set(String(r.kucode || r.id), { ...r, role: "manager" }));
@@ -21,7 +22,8 @@ export async function buildMemberIndex(shift, force = false) {
   ps.forEach((r)      => map.set(String(r.kucode || r.id), { ...r, role: "ps" }));
   perm.forEach((r)    => map.set(String(r.kucode || r.id), { ...r, role: "perm" }));
   temp.forEach((r)    => map.set(String(r.kucode || r.id), { ...r, role: "temp" }));
-  cache = { shift, map, manager, captain, ps, perm, temp };
+  cd.forEach((r)      => map.set(String(r.kucode || r.id), { ...r, role: "cd" }));
+  cache = { shift, map, manager, captain, ps, perm, temp, cd };
   cachedShift = shift;
   return cache;
 }
@@ -47,6 +49,7 @@ export function autofillFromMaster(index, kucode) {
   if (m.role === "ps")   return { name: m.name || "", team: m.team || "" };
   if (m.role === "perm") return { name: m.name || "", team: m.team || "" };
   if (m.role === "temp") return { name: m.name || "", team: "단기직" };
+  if (m.role === "cd")   return { name: m.name || "", team: m.process ? `${m.process} CD` : "CD" };
   return null;
 }
 
@@ -80,13 +83,19 @@ export function buildMemberLabel(member, fallbackName = "") {
     const txt = `🍀 ${name} - PS`;
     return { html: escape(txt), classes: ["lbl-ps"], plainText: txt };
   }
+  // CD — 다른 공정에서 지원 (성함 - 공정 CD)
+  if (role === "cd") {
+    const proc = (member.process || "").trim();
+    const txt = proc ? `${name} - ${proc} CD` : `${name} - CD`;
+    return { html: escape(txt), classes: ["lbl-cd"], plainText: txt };
+  }
 
   // PERM / TEMP — 하이스킬 + 특수 라벨
   const hi = Array.isArray(member.hiSkill) ? member.hiSkill : [];
   const sp = Array.isArray(member.special) ? member.special : [];
   // 하이스킬 (메뉴얼팩 / 오토백 / 집품 / 워터)
-  const isManual  = hi.includes("메뉴얼팩") || hi.includes("메뉴얼");
-  const isAutoBag = hi.includes("오토백");
+  const isManual  = hi.includes("메뉴얼팩") || hi.includes("메뉴얼") || sp.includes("메뉴얼 멀티");
+  const isAutoBag = hi.includes("오토백") || sp.includes("오토백 멀티");
   const isPick    = hi.includes("집품");
   const isWaterHi = hi.includes("워터");
   // 특수 (오더피커 / AGV / 워터)
@@ -94,7 +103,7 @@ export function buildMemberLabel(member, fallbackName = "") {
   const isWS          = sp.includes("워터");
 
   let suffix = "";
-  if (isOrderPicker) suffix = " - OrderPicker";
+  if (isOrderPicker) suffix = " - OP";
   else if (isWS) suffix = " - W/S";
 
   const text = name + suffix;
@@ -111,14 +120,18 @@ export function buildMemberLabel(member, fallbackName = "") {
 }
 
 // ── 팩가능자 표시 (M/A/P) ──
-// 메뉴얼 = 초록 / 오토백 = 파랑 / AGV = 분홍 색 블록.
+// 메뉴얼 = 초록(멀티는 주황) / 오토백 = 파랑 / AGV = 분홍 색 블록.
 export function buildSkillFlags(member) {
   const hi = Array.isArray(member?.hiSkill) ? member.hiSkill : [];
   const sp = Array.isArray(member?.special) ? member.special : [];
+  const manualMulti  = sp.includes("메뉴얼 멀티");
+  const autobagMulti = sp.includes("오토백 멀티");
   return {
-    manual:  hi.includes("메뉴얼팩") || hi.includes("메뉴얼"),
-    autobag: hi.includes("오토백"),
-    agv:     sp.includes("AGV"),
+    manual:       hi.includes("메뉴얼팩") || hi.includes("메뉴얼") || manualMulti,
+    manualMulti,
+    autobag:      hi.includes("오토백") || autobagMulti,
+    autobagMulti,
+    agv:          sp.includes("AGV"),
   };
 }
 
@@ -128,15 +141,19 @@ export function buildSkillChipsLabel(member) {
     return { html: "", classes: ["lbl-plain"], plainText: "" };
   }
   const f = buildSkillFlags(member);
-  const dot = (on, cls, label) =>
-    `<span class="skill-dot ${cls}${on ? " on" : ""}" title="${label}: ${on ? "가능" : "—"}"></span>`;
+  const dot = (on, cls, label, multi = false) =>
+    `<span class="skill-dot ${cls}${on ? " on" : ""}${multi ? " multi" : ""}" title="${label}: ${on ? "가능" : "—"}"></span>`;
   const html =
     `<span class="skill-dots">` +
-    dot(f.manual, "m", "메뉴얼") +
-    dot(f.autobag, "a", "오토백") +
+    dot(f.manual, "m", f.manualMulti ? "메뉴얼 멀티" : "메뉴얼", f.manualMulti) +
+    dot(f.autobag, "a", f.autobagMulti ? "오토백 멀티" : "오토백", f.autobagMulti) +
     dot(f.agv, "p", "AGV") +
     `</span>`;
-  const plain = [f.manual && "메뉴얼", f.autobag && "오토백", f.agv && "AGV"].filter(Boolean).join(",");
+  const plain = [
+    f.manual && (f.manualMulti ? "메뉴얼멀티" : "메뉴얼"),
+    f.autobag && (f.autobagMulti ? "오토백멀티" : "오토백"),
+    f.agv && "AGV",
+  ].filter(Boolean).join(",");
   return { html, classes: ["lbl-plain", "skill-cell"], plainText: plain };
 }
 

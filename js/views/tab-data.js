@@ -16,7 +16,11 @@ const SUBS = [
   { id: "ps",      label: "PS" },
   { id: "perm",    label: "PERM" },
   { id: "temp",    label: "TEMP" },
+  { id: "cd",      label: "CD" },
 ];
+
+// CD 공정 옵션 (다른 공정에서 지원)
+const CD_PROCESS_OPTIONS = ["IB", "CFC", "5OB", "HUB", "ICQA"];
 
 const COLUMNS = {
   manager: [
@@ -42,15 +46,21 @@ const COLUMNS = {
     { key: "name",    label: "성함",     type: "text" },
     { key: "team",    label: "조",       type: "text", width: "80px" },
     { key: "hiSkill", label: "하이스킬", type: "multi", options: ["메뉴얼팩", "오토백", "집품", "워터"], width: "200px" },
-    { key: "special", label: "특수",     type: "multi", options: ["오더피커", "AGV", "워터"], width: "200px" },
+    { key: "special", label: "특수",     type: "multi", options: ["오더피커", "AGV", "워터", "메뉴얼 멀티", "오토백 멀티"], width: "240px" },
     { key: "note",    label: "비고",     type: "text" },
   ],
   temp: [
     { key: "kucode",  label: "쿠코드",   type: "text" },
     { key: "name",    label: "성함",     type: "text" },
     { key: "hiSkill", label: "하이스킬", type: "multi", options: ["메뉴얼팩", "오토백", "집품", "워터"], width: "200px" },
-    { key: "special", label: "특수",     type: "multi", options: ["AGV", "워터"], width: "180px" },
+    { key: "special", label: "특수",     type: "multi", options: ["AGV", "워터", "메뉴얼 멀티", "오토백 멀티"], width: "240px" },
     { key: "note",    label: "비고",     type: "text" },
+  ],
+  cd: [
+    { key: "kucode",  label: "쿠코드", type: "text" },
+    { key: "name",    label: "성함",   type: "text" },
+    { key: "process", label: "공정",   type: "text", getOptions: () => CD_PROCESS_OPTIONS, width: "120px" },
+    { key: "note",    label: "비고",   type: "text" },
   ],
 };
 
@@ -61,6 +71,7 @@ const COPY_KEYS = {
   ps:      ["kucode", "name", "team"],
   perm:    ["kucode", "name", "team"],
   temp:    ["kucode", "name"],
+  cd:      ["kucode", "name", "process"],
 };
 
 // 중복 판단 키 — 같은 값이면 중복으로 간주
@@ -69,6 +80,7 @@ const DEDUPE_KEYS = {
   captain: ["kucode"],
   ps:      ["kucode"],
   perm:    ["kucode"],
+  cd:      ["kucode"],
   temp:    ["kucode", "name"], // 단기직은 쿠코드가 비어있을 수 있어 이름까지
 };
 

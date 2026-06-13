@@ -57,7 +57,8 @@ export function createGrid(opts) {
   selBar.style.display = "none";
   selBar.innerHTML = `
     <span class="sel-count">0 행 선택됨</span>
-    <button class="btn primary sel-copy">📋 복사 (Ctrl+C)</button>
+    <button class="btn primary sel-copy-kn" title="쿠코드 + 성함 (Ctrl+C)">📋 쿠코드 | 성함</button>
+    <button class="btn ghost sel-copy-ku" title="쿠코드만">📋 쿠코드만</button>
     <button class="btn ghost sel-clear">해제</button>
   `;
   wrap.appendChild(selBar);
@@ -117,7 +118,8 @@ export function createGrid(opts) {
   wrap.appendChild(scroll);
   container.appendChild(wrap);
 
-  selBar.querySelector(".sel-copy").addEventListener("click", () => copySelection());
+  selBar.querySelector(".sel-copy-kn").addEventListener("click", () => copySelection(["kucode", "name"]));
+  selBar.querySelector(".sel-copy-ku").addEventListener("click", () => copySelection(["kucode"]));
   selBar.querySelector(".sel-clear").addEventListener("click", () => {
     selected.clear();
     render();
@@ -130,7 +132,7 @@ export function createGrid(opts) {
     const sel = window.getSelection?.()?.toString();
     if (sel && sel.length > 0) return;
     e.preventDefault();
-    copySelection();
+    copySelection(["kucode", "name"]); // 기본: 쿠코드 | 성함
   }
   document.addEventListener("keydown", onCopyKey);
 
@@ -243,6 +245,13 @@ export function createGrid(opts) {
     const tr = document.createElement("tr");
     tr.dataset.rowId = row[rowIdKey] ?? "";
     if (selected.has(row)) tr.classList.add("row-selected");
+    // 검색 중이면 매칭 안 되는 행은 어둡게(반투명) — 검색한 사람만 환하게
+    if (hlText) {
+      const hasData = !!(row.kucode || row.name);
+      const matched = hasData && rowMatchesHl(row);
+      tr.classList.toggle("search-dim", !matched);
+      if (matched) tr.classList.add("search-hit");
+    }
 
     if (onRowContextMenu) {
       tr.addEventListener("contextmenu", (e) => {
@@ -621,13 +630,16 @@ export function createGrid(opts) {
     }
   }
 
-  function copySelection() {
+  // keysArg 지정 시 그 컬럼만 복사 (쿠코드만 / 쿠코드|성함). 미지정 시 copyKeys 또는 전체.
+  function copySelection(keysArg) {
     if (selected.size === 0) return;
     const visible = visibleRows();
     const orderedRows = visible.filter((r) => selected.has(r));
-    const keys = (copyKeys && copyKeys.length)
-      ? copyKeys
-      : columns.filter((c) => c.type !== "multi" && c.type !== "label").map((c) => c.key);
+    const keys = (keysArg && keysArg.length)
+      ? keysArg
+      : (copyKeys && copyKeys.length)
+        ? copyKeys
+        : columns.filter((c) => c.type !== "multi" && c.type !== "label").map((c) => c.key);
     const tsv = orderedRows
       .map((r) => keys.map((k) => {
         const v = r[k];
@@ -670,12 +682,27 @@ export function createGrid(opts) {
     });
   }
 
+  // 콤마(,)로 여러 검색어 — 하나라도 매칭되면 hit
+  function hlTermList(hl) {
+    return String(hl ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  }
   function matchesHl(row, col, hl) {
-    if (!hl) return false;
-    const t = String(hl).toLowerCase();
+    const terms = hlTermList(hl);
+    if (!terms.length) return false;
     const v = row[col.key];
-    if (Array.isArray(v)) return v.join(" ").toLowerCase().includes(t);
-    return String(v ?? "").toLowerCase().includes(t);
+    const s = (Array.isArray(v) ? v.join(" ") : String(v ?? "")).toLowerCase();
+    return terms.some((t) => s.includes(t));
+  }
+  function rowMatchesHl(row) {
+    const terms = hlTermList(hlText);
+    if (!terms.length) return true;
+    return terms.some((t) =>
+      columns.some((c) => {
+        const v = row[c.key];
+        const s = (Array.isArray(v) ? v.join(" ") : String(v ?? "")).toLowerCase();
+        return s.includes(t);
+      })
+    );
   }
 
   // CSS.escape 폴리필 (구형 브라우저 호환)

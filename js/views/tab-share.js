@@ -15,7 +15,18 @@ import {
   PACK_GROUPS_DEF, PICK_GROUPS_DEF, normalizePackGroup,
 } from "../components/pack-pick-grid.js";
 
-// share 보드 그룹 — PACK 은 PACK_GROUPS_DEF, PICK 은 PICK_GROUPS_DEF 와 동일 라벨/순서 (SSOT)
+// 공유 PICK 보드 — 6.1F / 6.3F 를 6F 로 통합 (집결지는 층 단위로만 안내)
+function shareGroup(subId, rawGroup) {
+  if (subId !== "pick") return rawGroup;
+  if (rawGroup === "6.1F" || rawGroup === "6.3F") return "6F";
+  return rawGroup;
+}
+function dedupeOrder(arr) {
+  const seen = new Set();
+  return arr.filter((x) => (seen.has(x) ? false : (seen.add(x), true)));
+}
+
+// share 보드 그룹 — PACK 은 PACK_GROUPS_DEF, PICK 은 PICK 층(6.1/6.3 → 6F 통합)
 const SHARE_DEFS = {
   pack: {
     label: "PACK 시업 집결지",
@@ -25,7 +36,7 @@ const SHARE_DEFS = {
   pick: {
     label: "PICK 시업 집결지",
     icon: "🛒",
-    groups: PICK_GROUPS_DEF.map((g) => g.id),
+    groups: dedupeOrder(PICK_GROUPS_DEF.map((g) => shareGroup("pick", g.id))),
   },
 };
 
@@ -177,13 +188,13 @@ export async function renderShareTab(root, ctx, params) {
     def.groups.forEach((g) => grouped.set(g, []));
     const stray = [];
     list.forEach((r) => {
-      // PACK: 옛 라벨("메뉴얼팩 멀티") 을 새 라벨("메뉴얼 멀티") 로 정규화
+      // PACK: 옛 라벨("메뉴얼팩 멀티") 을 새 라벨로 정규화 / PICK: 6.1·6.3 → 6F 통합
       const rawG = r.group || "";
-      const g = subId === "pack" ? normalizePackGroup(rawG) : rawG;
+      let g = subId === "pack" ? normalizePackGroup(rawG) : shareGroup(subId, rawG);
       if (grouped.has(g)) grouped.get(g).push(r);
       else if (g) {
-        // PICK: "6.1F · 싱귤" 같은 옛 데이터가 있으면 sub 떼고 매칭 시도
-        const base = g.split(" · ")[0];
+        // 옛 데이터("6.1F · 싱귤" 등): sub 떼고 6F 통합 후 매칭 시도
+        const base = shareGroup(subId, g.split(" · ")[0]);
         if (grouped.has(base)) grouped.get(base).push(r);
         else stray.push(r);
       } else stray.push(r);
@@ -210,9 +221,10 @@ export async function renderShareTab(root, ctx, params) {
         items.forEach((r) => {
           const li = document.createElement("li");
           const member = memberIndex.map.get(String(r.kucode));
-          const label = buildMemberLabel(member, r.name);
+          // 공유 시트는 하이스킬 색 표시 없이 이름만 깔끔하게
+          const plainName = (member?.name || r.name || "").trim() || "—";
           li.className = "share-name";
-          li.innerHTML = `<span class="lbl ${(label.classes || []).join(" ")}">${label.html}</span><span class="share-team">${escape(r.team || "")}</span>`;
+          li.innerHTML = `<span class="share-plain-name">${escape(plainName)}</span><span class="share-team">${escape(r.team || "")}</span>`;
           li.addEventListener("click", () => {
             if (member) openMemberCard(member, { shift });
           });
@@ -398,8 +410,7 @@ function applyDiffToGrid(grid, remoteRows) {
 function pickVariant(kind, group) {
   if (kind === "pick") {
     const FLOOR_VARIANTS = {
-      "6.1F":       "floor-1",
-      "6.3F":       "floor-2",
+      "6F":         "floor-1",
       "AGV (7.1F)": "floor-3",
       "7.2F":       "floor-4",
       "7.3F":       "floor-5",
