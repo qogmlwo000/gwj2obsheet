@@ -44,7 +44,10 @@ export function createGrid(opts) {
   const selected = new Set();
   let lastClickedIndex = -1;
   // 체크박스 mousedown + drag 로 범위 선택
-  let dragMode = null; // 'select' | 'deselect' | null
+  let dragMode = null; // 'select' | 'deselect' | 'range' | null
+  // 셀 위에서 드래그 시작 → 다른 행 진입 시 행 범위 선택으로 전환
+  let pendingDrag = null; // { startVi }
+  let rangeBase = null;   // 드래그 시작 전 선택 스냅샷 (방향 반전 시 복원용)
 
   const wrap = document.createElement("div");
   wrap.className = "grid-wrap";
@@ -132,8 +135,26 @@ export function createGrid(opts) {
   document.addEventListener("keydown", onCopyKey);
 
   // 드래그 종료 — 마우스가 그리드 밖으로 나가도 끝나도록 document 에 등록
-  function onMouseUp() { dragMode = null; }
+  function onMouseUp() {
+    dragMode = null;
+    pendingDrag = null;
+    rangeBase = null;
+    wrap.classList.remove("drag-selecting");
+  }
   document.addEventListener("mouseup", onMouseUp);
+
+  // 셀 드래그 범위 선택 적용 — 시작 행 ~ 현재 행 사이를 모두 체크
+  function applyDragRange(curVi) {
+    if (!pendingDrag) return;
+    const visible = visibleRows();
+    const [a, b] = [pendingDrag.startVi, curVi].sort((x, y) => x - y);
+    selected.clear();
+    if (rangeBase) rangeBase.forEach((r) => selected.add(r));
+    for (let i = a; i <= b; i++) {
+      if (visible[i]) selected.add(visible[i]);
+    }
+    render();
+  }
 
   // ── 포커스 상태 저장/복구 (재렌더 시 사용자 입력 보존) ──
   function saveFocusState() {
@@ -269,14 +290,37 @@ export function createGrid(opts) {
 
       // ── 드래그 중 다른 행 진입 시 같은 모드로 추가/제거 ──
       tr.addEventListener("mouseenter", () => {
-        if (!dragMode) return;
-        if (dragMode === "select") selected.add(row);
-        else selected.delete(row);
-        render();
+        if (dragMode === "range") { applyDragRange(vi); return; }
+        if (dragMode === "select" || dragMode === "deselect") {
+          if (dragMode === "select") selected.add(row);
+          else selected.delete(row);
+          render();
+          return;
+        }
+        // 셀에서 시작한 드래그가 다른 행으로 진입 → 행 범위 선택 모드 발동
+        if (pendingDrag && pendingDrag.startVi !== vi) {
+          dragMode = "range";
+          rangeBase = new Set(selected);
+          lastClickedIndex = pendingDrag.startVi;
+          wrap.classList.add("drag-selecting"); // 텍스트 선택 방지
+          try { window.getSelection()?.removeAllRanges(); } catch {}
+          const active = document.activeElement;
+          if (active && active.matches?.(".cell-input")) active.blur();
+          applyDragRange(vi);
+        }
       });
 
       td.appendChild(cb);
       tr.appendChild(td);
+    }
+
+    // ── 셀 아무 곳에서나 드래그 시작 가능 (다른 행으로 넘어가면 범위 선택) ──
+    if (selectable) {
+      tr.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        if (e.target.closest(".row-checkbox") || e.target.closest(".row-delete")) return;
+        pendingDrag = { startVi: vi };
+      });
     }
 
     columns.forEach((col, ci) => {

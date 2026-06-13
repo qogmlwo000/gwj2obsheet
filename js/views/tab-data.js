@@ -7,6 +7,8 @@ import { isAdmin, clearNicknameCache } from "../auth.js";
 import { showToast } from "../toast.js";
 import { confirmDialog, alertDialog } from "../components/dialog.js";
 import { clearMemberIndex } from "../components/member-label.js";
+import { openContextMenu } from "../components/context-menu.js";
+import { downloadMasterTemplate, exportMasterXlsx, parseMasterFile } from "../excel.js";
 
 const SUBS = [
   { id: "manager", label: "MANAGER" },
@@ -125,6 +127,85 @@ export async function renderDataTab(root, ctx, params) {
   addBtn.className = "btn primary";
   addBtn.innerHTML = "+ 행 추가";
   actionBar.appendChild(addBtn);
+
+  // ── 엑셀 메뉴 (템플릿 / 내보내기 / 가져오기) — 대량 등록용 ──
+  const excelBtn = document.createElement("button");
+  excelBtn.className = "btn ghost";
+  excelBtn.innerHTML = "📗 엑셀 ▾";
+  excelBtn.title = "엑셀 템플릿 다운로드 · 내보내기 · 가져오기";
+  excelBtn.addEventListener("click", () => {
+    const r = excelBtn.getBoundingClientRect();
+    openContextMenu(r.left, r.bottom + 4, [
+      { heading: `${cur.label} 엑셀` },
+      {
+        label: "템플릿 다운로드", icon: "📄",
+        onClick: () => downloadMasterTemplate(cur.id)
+          .then(() => showToast("템플릿 다운로드 완료 — 작성 후 '가져오기'로 업로드하세요", "success"))
+          .catch((e) => showToast("다운로드 실패: " + (e.message || e), "error")),
+      },
+      {
+        label: "엑셀로 내보내기 (현재 데이터)", icon: "📤",
+        onClick: async () => {
+          try {
+            const rows = await listMaster(shift, cur.id);
+            await exportMasterXlsx(shift, cur.id, rows);
+            showToast(`✓ ${rows.length}명 내보내기 완료`, "success");
+          } catch (e) { showToast("내보내기 실패: " + (e.message || e), "error"); }
+        },
+      },
+      { divider: true },
+      { label: "엑셀 가져오기 (.xlsx/.csv)", icon: "📥", onClick: () => runExcelImport() },
+    ]);
+  });
+  actionBar.appendChild(excelBtn);
+
+  async function runExcelImport() {
+    const file = await pickFile(".xlsx,.xls,.csv");
+    if (!file) return;
+    let parsed;
+    try {
+      parsed = await parseMasterFile(file, cur.id);
+    } catch (e) {
+      showToast("파일을 읽을 수 없습니다: " + (e.message || e), "error");
+      return;
+    }
+    const { rows, dupCount, skippedNoKucode, invalidTokens } = parsed;
+    if (!rows.length) {
+      showToast("가져올 행이 없습니다 — 쿠코드 열이 채워졌는지 확인해주세요", "error");
+      return;
+    }
+    // 신규/갱신 미리보기
+    const existing = await listMaster(shift, cur.id);
+    const existingIds = new Set(existing.map((r) => String(r.id)));
+    const updates = rows.filter((r) => existingIds.has(String(r.kucode))).length;
+    const adds = rows.length - updates;
+    const notes = [];
+    if (dupCount) notes.push(`파일 내 중복 쿠코드 ${dupCount}건 — 마지막 행 기준 적용`);
+    if (skippedNoKucode) notes.push(`쿠코드 없는 행 ${skippedNoKucode}건 제외`);
+    if (invalidTokens) notes.push(`허용 목록에 없는 스킬 값 ${invalidTokens}건 무시`);
+    const ok = await confirmDialog({
+      title: "엑셀 가져오기",
+      message: `${cur.label}에 ${rows.length}명을 가져올까요?`,
+      detail: `<div class="conflict-detail">신규 추가 <b>${adds}명</b> · 기존 갱신 <b>${updates}명</b>${notes.length ? "<br>" + notes.join("<br>") : ""}</div>`,
+      yes: "가져오기", no: "취소",
+    });
+    if (!ok) return;
+    excelBtn.disabled = true;
+    excelBtn.innerHTML = "⏳ 가져오는 중...";
+    try {
+      const { ok: okCount, batches } = await batchUpsertMaster(shift, cur.id, rows);
+      if (cur.id === "manager" || cur.id === "captain") clearNicknameCache();
+      clearMemberIndex();
+      await refreshRows();
+      showToast(`✓ ${okCount}명 가져오기 완료 (${batches}배치)`, "success");
+    } catch (e) {
+      console.error("excel import failed", e);
+      showToast("가져오기 실패: " + (e.message || e), "error");
+    } finally {
+      excelBtn.disabled = false;
+      excelBtn.innerHTML = "📗 엑셀 ▾";
+    }
+  }
 
   const pasteHelp = document.createElement("button");
   pasteHelp.className = "btn ghost";
@@ -333,4 +414,14 @@ async function runDedupe(shift, sub, refresh) {
 function sanitize(row) {
   const { __errors, __dup, __editStartUpdatedAt, ...rest } = row;
   return rest;
+}
+
+function pickFile(accept) {
+  return new Promise((resolve) => {
+    const inp = document.createElement("input");
+    inp.type = "file";
+    inp.accept = accept;
+    inp.addEventListener("change", () => resolve(inp.files[0] || null));
+    inp.click();
+  });
 }

@@ -28,23 +28,6 @@ export async function renderPackTab(root, ctx) {
   head.appendChild(totalChip);
   root.appendChild(head);
 
-  const wsWrap = document.createElement("section");
-  wsWrap.className = "ws-wrap";
-  const wsHead = document.createElement("button");
-  wsHead.type = "button";
-  wsHead.className = "ws-head";
-  wsHead.innerHTML = `<span>💧 W/S 워터 — PACK</span><span class="ws-toggle">▾</span>`;
-  wsWrap.appendChild(wsHead);
-  const wsBody = document.createElement("div");
-  wsBody.className = "ws-body";
-  wsWrap.appendChild(wsBody);
-  wsHead.addEventListener("click", () => {
-    wsWrap.classList.toggle("collapsed");
-    wsHead.querySelector(".ws-toggle").textContent =
-      wsWrap.classList.contains("collapsed") ? "▸" : "▾";
-  });
-  root.appendChild(wsWrap);
-
   const stripHost = document.createElement("div");
   root.appendChild(stripHost);
 
@@ -57,14 +40,21 @@ export async function renderPackTab(root, ctx) {
 
   function build() {
     const date = dateInput.value || todayStr();
+    // W/S 워터 — 스트립 맨 오른쪽 카드 (6F/7F 카드와 같은 위치감)
+    const wsCard = makeWsCard();
     stripApi = renderPackPickStrip({
       container: stripHost, kind: "pack", shift, date,
       groups: PACK_GROUPS_DEF, memberIndex,
       onCountChange: (t) => { mainCount = t.total; refresh(); },
+      trailingEl: wsCard,
     });
     wsApi = renderWSTable({
-      container: wsBody, kind: "pack", shift, date, memberIndex,
-      onCountChange: (n) => { wsCount = n; refresh(); },
+      container: wsCard.querySelector(".pp-card-body"),
+      kind: "pack", shift, date, memberIndex,
+      onCountChange: (n) => {
+        wsCount = n; refresh();
+        wsCard.querySelector(".pp-card-count").textContent = `${n} 명`;
+      },
     });
   }
 
@@ -72,7 +62,6 @@ export async function renderPackTab(root, ctx) {
     if (stripApi?.destroy) stripApi.destroy();
     if (wsApi?.destroy) wsApi.destroy();
     stripHost.innerHTML = "";
-    wsBody.innerHTML = "";
     build();
   });
 
@@ -87,4 +76,28 @@ export async function renderPackTab(root, ctx) {
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// W/S 워터 카드 셸 — 스트립의 다른 라인/층 카드와 같은 모양
+export function makeWsCard() {
+  const el = document.createElement("section");
+  el.className = "pp-card pp-ws-card variant-water";
+  el.innerHTML = `
+    <header class="pp-card-head">
+      <div class="pp-card-title">
+        <span class="pp-card-name">💧 W/S 워터</span>
+        <span class="pp-card-count">0 명</span>
+      </div>
+      <div class="pp-card-actions">
+        <button class="icon-btn small" title="접기/펼치기">▾</button>
+      </div>
+    </header>
+    <div class="pp-card-body"></div>
+  `;
+  const collapseBtn = el.querySelector(".pp-card-actions .icon-btn");
+  collapseBtn.addEventListener("click", () => {
+    el.classList.toggle("collapsed");
+    collapseBtn.textContent = el.classList.contains("collapsed") ? "▸" : "▾";
+  });
+  return el;
 }

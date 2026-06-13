@@ -58,6 +58,7 @@ export function renderPackPickStrip(opts) {
   const {
     container, kind, shift, date, groups, memberIndex,
     onCountChange = () => {},
+    trailingEl = null, // 스트립 맨 오른쪽에 붙는 추가 카드 (예: W/S 워터)
   } = opts;
 
   container.innerHTML = "";
@@ -135,6 +136,7 @@ export function renderPackPickStrip(opts) {
   container.appendChild(layout);
 
   const cards = [];       // { groupId, subId, el, gridApi, countEl, ... }
+  const colEls = [];      // 서브(싱귤/멀티 등)를 수직으로 묶는 컬럼 요소들
   let allRows = [];       // 모든 카드의 데이터 합 (Firestore + LS 머지된 결과)
   let unsubOps = null;
   let searchText = "";
@@ -161,12 +163,37 @@ export function renderPackPickStrip(opts) {
     });
     strip.innerHTML = "";
     cards.length = 0;
+    colEls.length = 0;
     groups.forEach((g) => {
-      if (g.subs) g.subs.forEach((s) => { const c = makeCard(g, s); strip.appendChild(c.el); cards.push(c); });
-      else { const c = makeCard(g, null); strip.appendChild(c.el); cards.push(c); }
+      if (g.subs) {
+        // 서브(싱귤/멀티 등)는 한 컬럼에 수직으로 쌓음 — 싱귤 아래 멀티
+        const colEl = document.createElement("div");
+        colEl.className = "pp-col";
+        colEl.dataset.gid = g.id;
+        g.subs.forEach((s) => {
+          const c = makeCard(g, s);
+          colEl.appendChild(c.el);
+          cards.push(c);
+        });
+        strip.appendChild(colEl);
+        colEls.push(colEl);
+      } else {
+        const c = makeCard(g, null);
+        strip.appendChild(c.el);
+        cards.push(c);
+      }
     });
+    if (trailingEl) strip.appendChild(trailingEl); // W/S 등 — 맨 오른쪽
     applyVisibility();
     applySearch();
+  }
+
+  // 컬럼 안의 카드가 모두 숨겨지면 컬럼 자체도 숨김 (빈 공간 방지)
+  function syncColVisibility() {
+    colEls.forEach((colEl) => {
+      const anyVisible = [...colEl.children].some((el) => el.style.display !== "none");
+      colEl.style.display = anyVisible ? "" : "none";
+    });
   }
 
   // ── 다른 사용자의 변경 (subscribeOps) 을 카드별 셀 단위로 적용 ──
@@ -618,7 +645,7 @@ export function renderPackPickStrip(opts) {
       const vis = visibility.get(k) !== false;
       c.el.style.display = vis ? "" : "none";
     });
-    applySearch(); // visibility 변경 후 검색도 재반영
+    applySearch(); // visibility 변경 후 검색도 재반영 (syncColVisibility 포함)
   }
 
   collapseAllBtn.addEventListener("click", () => cards.forEach((c) => {
@@ -655,6 +682,7 @@ export function renderPackPickStrip(opts) {
         c.el.style.display = vis ? "" : "none";
         c.el.classList.remove("search-no-match");
       });
+      syncColVisibility();
       return;
     }
     const q = searchText.toLowerCase();
@@ -672,6 +700,7 @@ export function renderPackPickStrip(opts) {
       c.el.style.display = hasMatch ? "" : "none";
       c.el.classList.toggle("search-no-match", !hasMatch);
     });
+    syncColVisibility();
   }
 
   function refreshTotals() {

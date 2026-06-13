@@ -3,6 +3,7 @@
 import { renderPackPickStrip, PICK_GROUPS_DEF } from "../components/pack-pick-grid.js";
 import { buildMemberIndex } from "../components/member-label.js";
 import { renderWSTable } from "./tab-ws.js";
+import { makeWsCard } from "./tab-pack.js";
 
 export async function renderPickTab(root, ctx) {
   root.innerHTML = "";
@@ -28,23 +29,6 @@ export async function renderPickTab(root, ctx) {
   head.appendChild(totalChip);
   root.appendChild(head);
 
-  const wsWrap = document.createElement("section");
-  wsWrap.className = "ws-wrap";
-  const wsHead = document.createElement("button");
-  wsHead.type = "button";
-  wsHead.className = "ws-head";
-  wsHead.innerHTML = `<span>💧 W/S 워터 — PICK</span><span class="ws-toggle">▾</span>`;
-  wsWrap.appendChild(wsHead);
-  const wsBody = document.createElement("div");
-  wsBody.className = "ws-body";
-  wsWrap.appendChild(wsBody);
-  wsHead.addEventListener("click", () => {
-    wsWrap.classList.toggle("collapsed");
-    wsHead.querySelector(".ws-toggle").textContent =
-      wsWrap.classList.contains("collapsed") ? "▸" : "▾";
-  });
-  root.appendChild(wsWrap);
-
   const stripHost = document.createElement("div");
   root.appendChild(stripHost);
 
@@ -56,14 +40,21 @@ export async function renderPickTab(root, ctx) {
 
   function build() {
     const date = dateInput.value || todayStr();
+    // W/S 워터 — 스트립 맨 오른쪽 카드
+    const wsCard = makeWsCard();
     stripApi = renderPackPickStrip({
       container: stripHost, kind: "pick", shift, date,
       groups: PICK_GROUPS_DEF, memberIndex,
       onCountChange: (t) => { mainCount = t.total; refresh(); },
+      trailingEl: wsCard,
     });
     wsApi = renderWSTable({
-      container: wsBody, kind: "pick", shift, date, memberIndex,
-      onCountChange: (n) => { wsCount = n; refresh(); },
+      container: wsCard.querySelector(".pp-card-body"),
+      kind: "pick", shift, date, memberIndex,
+      onCountChange: (n) => {
+        wsCount = n; refresh();
+        wsCard.querySelector(".pp-card-count").textContent = `${n} 명`;
+      },
     });
   }
 
@@ -71,7 +62,6 @@ export async function renderPickTab(root, ctx) {
     if (stripApi?.destroy) stripApi.destroy();
     if (wsApi?.destroy) wsApi.destroy();
     stripHost.innerHTML = "";
-    wsBody.innerHTML = "";
     build();
   });
 

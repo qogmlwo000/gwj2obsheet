@@ -701,6 +701,29 @@ export async function setDeadlines(items) {
   );
 }
 
+// ── 추가 관리자 닉네임 목록 (Bennett 외) ──
+export async function getAdmins() {
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const snap = await fs.getDoc(fs.doc(db, "settings", "admins"));
+      return snap.exists() ? (snap.data().items || []) : [];
+    },
+    () => readLS(LS_PREFIX + "settings:admins") || []
+  );
+}
+export async function setAdmins(items) {
+  const lsWrite = () => writeLS(LS_PREFIX + "settings:admins", items);
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await fs.setDoc(fs.doc(db, "settings", "admins"), { items, updatedAt: Date.now() });
+      lsWrite();
+    },
+    lsWrite
+  );
+}
+
 export async function getSnop(shift, date) {
   return safe(
     async () => {

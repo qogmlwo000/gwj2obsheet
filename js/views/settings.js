@@ -6,9 +6,9 @@
 
 import {
   getAllowedNicknames, exportShift, importShift, wipeShift,
-  getDeadlines, setDeadlines,
+  getDeadlines, setDeadlines, getAdmins, setAdmins,
 } from "../db.js";
-import { clearNicknameCache } from "../auth.js";
+import { clearNicknameCache, clearAdminCache, ADMIN_NICKNAME } from "../auth.js";
 import { showToast } from "../toast.js";
 import { confirmDialog } from "../components/dialog.js";
 import {
@@ -49,6 +49,19 @@ export async function openSettings() {
         <div class="nickname-list" id="nick-list"><span class="nickname-tag empty">불러오는 중…</span></div>
         <p style="margin-top:8px;font-size:12px;color:var(--text-muted)">
           DATA → MANAGER · TEAM CAPTAIN 의 닉네임 컬럼이 곧 입장 가능자 목록입니다.
+        </p>
+      </div>
+
+      <div class="modal-section">
+        <h4>⚡ 관리자</h4>
+        <div class="nickname-list" id="admin-list"><span class="nickname-tag empty">불러오는 중…</span></div>
+        <form class="deadline-add" id="admin-add">
+          <input type="text" placeholder="관리자로 추가할 닉네임" maxlength="24" required />
+          <button class="btn primary" type="submit">추가</button>
+        </form>
+        <p style="margin-top:8px;font-size:12px;color:var(--text-muted)">
+          관리자는 행 삭제 · 백업/복원/초기화 · 마감시간 · CSV 내보내기 등 모든 관리 기능을 사용할 수 있습니다.<br>
+          여기 등록된 닉네임은 DATA 등록 없이도 바로 입장 가능합니다. <b>Bennett</b> 은 항상 관리자입니다.
         </p>
       </div>
 
@@ -216,6 +229,64 @@ export async function openSettings() {
     labelInput.value = ""; timeInput.value = "";
     renderDl();
     showToast("마감시간 추가", "success");
+  });
+
+  // ---------- 관리자 관리 ----------
+  let admins = [];
+  const adminList = modal.querySelector("#admin-list");
+  async function renderAdmins() {
+    adminList.innerHTML = "";
+    // Bennett — 고정 관리자 (삭제 불가)
+    const fixed = document.createElement("span");
+    fixed.className = "nickname-tag admin-fixed";
+    fixed.innerHTML = `⚡ ${ADMIN_NICKNAME} <small>(고정)</small>`;
+    adminList.appendChild(fixed);
+    admins.forEach((name, i) => {
+      const t = document.createElement("span");
+      t.className = "nickname-tag admin-extra";
+      t.innerHTML = `⚡ ${escape(name)} <button type="button" class="admin-remove" title="관리자 해제">×</button>`;
+      t.querySelector(".admin-remove").addEventListener("click", async () => {
+        const ok = await confirmDialog({
+          title: "관리자 해제",
+          message: `${name} 님의 관리자 권한을 해제할까요?`,
+          danger: true, yes: "해제", no: "취소",
+        });
+        if (!ok) return;
+        admins.splice(i, 1);
+        await setAdmins(admins);
+        clearAdminCache();
+        renderAdmins();
+        showToast("관리자 해제됨", "success");
+      });
+      adminList.appendChild(t);
+    });
+  }
+  try {
+    admins = (await getAdmins()) || [];
+    renderAdmins();
+  } catch {
+    adminList.innerHTML = `<span class="nickname-tag empty">불러오기 실패</span>`;
+  }
+
+  modal.querySelector("#admin-add").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = e.currentTarget.querySelector("input");
+    const name = input.value.trim();
+    if (!name) return;
+    if (name.toLowerCase() === ADMIN_NICKNAME.toLowerCase()) {
+      showToast("Bennett 은 이미 고정 관리자입니다", "info");
+      return;
+    }
+    if (admins.some((n) => String(n).toLowerCase() === name.toLowerCase())) {
+      showToast("이미 관리자로 등록돼 있습니다", "error");
+      return;
+    }
+    admins.push(name);
+    await setAdmins(admins);
+    clearAdminCache();
+    input.value = "";
+    renderAdmins();
+    showToast(`✓ ${name} 관리자 추가 — 이 닉네임으로 바로 입장 가능합니다`, "success");
   });
 
   // ---------- 닉네임 ----------

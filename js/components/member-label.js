@@ -107,13 +107,7 @@ export function buildMemberLabel(member, fallbackName = "") {
   else classes.push("lbl-plain");
   if (role === "temp") classes.push("lbl-temp");
 
-  // 하이스킬러 표시 — 이름 옆 ⭐ 배지
-  const isHiSkiller = hi.length > 0;
-  const badge = isHiSkiller
-    ? `<span class="hi-badge" title="하이스킬: ${escape(hi.join(", "))}">⭐</span>`
-    : "";
-
-  return { html: badge + escape(text), classes, plainText: text };
+  return { html: escape(text), classes, plainText: text };
 }
 
 // ── 팩가능자 표시 (M/A/P) ──
