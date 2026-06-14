@@ -933,10 +933,10 @@ function sanitize(row) {
   return rest;
 }
 
-// 공유 시트 자동 추가 대상 — Perm(계약직) 만
+// 공유 시트 자동 추가 대상 — Perm(계약직) 만. PS 도 Perm 에 속하므로 포함.
 function isPermMember(memberIndex, kucode) {
   const m = memberIndex?.map?.get(String(kucode));
-  return m?.role === "perm";
+  return m?.role === "perm" || m?.role === "ps";
 }
 
 function escape(s) {

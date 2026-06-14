@@ -370,14 +370,14 @@ function escape(s) {
 // 자동 동기화 — 다른 탭/마스터에서 Actual 카운트 계산
 // ──────────────────────────────────────────────────────────
 export async function computeActualFromSources(shift, date) {
-  const [pack, pick, newTemp, captain, tcpos, permMaster, tempMaster] = await Promise.all([
+  const [pack, pick, newTemp, captain, tcpos, permMaster, psMaster] = await Promise.all([
     listOps(shift, "pack", date),
     listOps(shift, "pick", date),
     listFlow(shift, "newTemp", date),
     listFlow(shift, "captain", date),         // ★ FLOW > TEAM CAPTAIN 도 포함
     getTCPosition(shift, date),
     listMaster(shift, "perm"),
-    listMaster(shift, "temp"),
+    listMaster(shift, "ps"),                  // ★ PS 도 Perm(상용직)에 속하므로 함께 집계
   ]);
 
   // T/C Actual = FLOW>captain + TC 포지션에 배정된 고유 쿠코드 (Union, dedupe)
@@ -393,8 +393,8 @@ export async function computeActualFromSources(shift, date) {
     }
   }
 
-  const permSet = new Set(permMaster.map((r) => String(r.kucode || r.id)));
-  const tempSet = new Set(tempMaster.map((r) => String(r.kucode || r.id)));
+  // PS 도 Perm(상용직)에 속하므로 perm + ps 마스터를 합쳐서 Perm 으로 집계
+  const permSet = new Set([...permMaster, ...psMaster].map((r) => String(r.kucode || r.id)));
 
   // PACK + PICK 의 모든 쿠코드 (중복 제거)
   const opsKus = new Set();
@@ -403,18 +403,25 @@ export async function computeActualFromSources(shift, date) {
     if (ku) opsKus.add(ku);
   });
 
-  // Perm Actual = ops 의 쿠코드 중 perm 마스터에 있는 것
-  // Temp Actual = ops 의 쿠코드 중 perm 에는 없고 temp 에 있는 것 (또는 둘 다 없는 미분류)
+  // 오늘 FLOW>신규단기 쿠코드 — 당일은 Newbie 로만 집계하고 Temp 중복집계에서 제외.
+  // (다음 날부터는 newTemp 에서 빠지고 DATA Temp 에 남아 자동으로 기존단기(Temp)로 전환됨)
+  const newTempRows = newTemp.filter((r) => r.id);
+  const newTempKus = new Set(
+    newTempRows.map((r) => String(r.kucode || "").trim()).filter(Boolean)
+  );
+
+  // Perm Actual = ops 의 쿠코드 중 perm/ps 마스터에 있는 것
+  // Temp Actual = 나머지 (오늘 신규단기는 제외 — Newbie 로만 집계)
   let permActual = 0;
   let tempActual = 0;
   for (const ku of opsKus) {
+    if (newTempKus.has(ku)) continue;  // 오늘 신규단기 → Newbie 로만 집계
     if (permSet.has(ku)) permActual++;
-    else if (tempSet.has(ku)) tempActual++;
-    else tempActual++; // DATA 미등록도 임시직으로 간주
+    else tempActual++; // 기존 temp + DATA 미등록 모두 임시직으로 간주
   }
 
   // Newbie Actual = FLOW > newTemp 에 입력된 행 수 (id 가 있는 것만)
-  const newbieActual = newTemp.filter((r) => r.id).length;
+  const newbieActual = newTempRows.length;
 
   return {
     tc:     { actual: tcKus.size },

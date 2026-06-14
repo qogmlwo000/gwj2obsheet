@@ -8,14 +8,6 @@ import { getSession } from "../auth.js";
 import { showToast } from "../toast.js";
 import { confirmDialog } from "../components/dialog.js";
 
-// TC 포지션 라벨 풀 (캡틴/PS 의 비고 자동완성용)
-const TC_POSITION_LABELS = [
-  "Manager 1", "Manager 2", "Manager 3",
-  "Pack Main", "Auto Main", "Auto Sub", "Manual Main", "Manual Sub", "ACE", "Direct (Pack)",
-  "Pick Main", "6F", "7.2F", "7.3F", "8F", "AGV", "Direct (Pick)",
-  "노쇼파악", "TBM", "PPR", "Live Worker", "근태 공유", "IT 장비 관리",
-];
-
 const MIN_ROWS = 15; // 폼처럼 보이도록 기본으로 채우는 행 수
 
 export async function renderFlowTab(root, ctx) {
@@ -93,7 +85,11 @@ export async function renderFlowTab(root, ctx) {
 
 // ── 카테고리 정의 ──
 function makeCats(masters) {
-  const captainOpts = optsFrom(masters.captainByKu);
+  // TEAM CAPTAIN 카드는 캡틴 + 매니저를 모두 후보로 (TCPOS 와 동일하게 매니저도 TC 로 취급)
+  const captainOpts = dedupeOpts([
+    ...optsFrom(masters.captainByKu),
+    ...optsFrom(masters.managerByKu),
+  ]);
   const psOpts = optsFrom(masters.psByKu);
   const allOpts = dedupeOpts([
     ...psOpts,
@@ -111,7 +107,7 @@ function makeCats(masters) {
         { key: "kucode",   label: "쿠코드", type: "text", getOptions: () => captainOpts },
         { key: "nickname", label: "닉네임", type: "text", readonly: true },
         { key: "name",     label: "성함",   type: "text", readonly: true },
-        { key: "note",     label: "비고",   type: "text", getOptions: () => TC_POSITION_LABELS },
+        { key: "note",     label: "비고",   type: "text" },
         { key: "overtime", label: "연장시간", type: "text" },
       ],
     },
@@ -122,7 +118,7 @@ function makeCats(masters) {
         { key: "kucode",   label: "쿠코드", type: "text", getOptions: () => psOpts },
         { key: "nickname", label: "닉네임", type: "text", readonly: true },
         { key: "name",     label: "성함",   type: "text", readonly: true },
-        { key: "note",     label: "비고",   type: "text", getOptions: () => TC_POSITION_LABELS },
+        { key: "note",     label: "비고",   type: "text" },
         { key: "overtime", label: "연장시간", type: "text" },
       ],
     },
@@ -218,26 +214,31 @@ function makeCatCard(cat, board, shift, dateInput, masters) {
         refreshCount();
         return { patch: { name: "", nickname: "" } };
       }
-      // 쿠코드 없이 다른 컬럼 입력 → 안내
-      if (!ku) {
-        if (key !== "kucode" && String(value || "").trim()) return { error: "쿠코드를 먼저 입력하세요." };
-        return {};
-      }
+      // 쿠코드 없이 다른 컬럼을 먼저 입력해도 막지 않음 (값은 row 에 보존되고, 쿠코드 입력 시 함께 저장됨).
+      // → 빈 행에 비고/연장시간 등을 먼저 쳐도 빨간 테두리(에러)가 생기지 않는다.
+      if (!ku) return {};
       // 쿠코드 입력 시 자동 채움 (신규단기 제외 — 수기 입력)
       if (key === "kucode" && cat.id !== "newTemp") {
         const fill = autofill(ku, masters);
         if (fill) {
           row.name = fill.name; row.nickname = fill.nickname; row.team = fill.team;
+          if (row.__errors) row.__errors = {}; // 행이 정상이 되었으니 잔여 에러(빨간 테두리) 제거
         } else {
           return { error: "DATA에 없는 쿠코드입니다." };
         }
       }
-      // 신규단기는 temp 마스터에도 등록
+      // 신규단기는 DATA Temp 마스터에 자동 등록 — "24시간 후 기존단기"로 자연 전환되도록 로스터에 등재.
+      // (날짜 파티셔닝: 오늘은 FLOW>신규단기 = Newbie, 다음 날부터는 DATA Temp 소속 = 기존단기)
       if (cat.id === "newTemp" && ku && row.name) {
-        try {
-          await upsertMaster(shift, "temp", ku, { kucode: ku, name: row.name });
-          masters.tempByKu = indexBy(await listMaster(shift, "temp"), "kucode");
-        } catch {}
+        const prev = masters.tempByKu.get(ku);
+        if (!prev || prev.name !== row.name || (prev.note || "") !== (row.note || "")) {
+          const tempData = { kucode: ku, name: row.name, note: row.note || "" };
+          try {
+            await upsertMaster(shift, "temp", ku, tempData);
+            masters.tempByKu.set(ku, tempData); // 로컬 인덱스만 갱신 (키입력당 전체 재조회 제거)
+          } catch {}
+        }
+        if (row.__errors) row.__errors = {};
       }
       // ★ 레이스 방지: upsertFlow await 전에 id 를 미리 할당.
       //   그래야 await 도중 onSnapshot 이 와도 applyDiff 가 findRow(id) 로 기존 행을 찾아
@@ -322,7 +323,8 @@ function applyDiff(grid, remoteRows) {
 // ---------- helpers ----------
 
 async function loadMasters(shift) {
-  const [captains, ps, perm, temp, cd] = await Promise.all([
+  const [managers, captains, ps, perm, temp, cd] = await Promise.all([
+    listMaster(shift, "manager"),
     listMaster(shift, "captain"),
     listMaster(shift, "ps"),
     listMaster(shift, "perm"),
@@ -330,6 +332,7 @@ async function loadMasters(shift) {
     listMaster(shift, "cd"),
   ]);
   return {
+    managerByKu: indexBy(managers, "kucode"),
     captainByKu: indexBy(captains, "kucode"),
     psByKu:      indexBy(ps, "kucode"),
     permByKu:    indexBy(perm, "kucode"),
@@ -363,6 +366,7 @@ function dedupeOpts(opts) {
 function autofill(ku, masters) {
   const k = String(ku).trim();
   const m =
+    masters.managerByKu.get(k) ||
     masters.captainByKu.get(k) ||
     masters.psByKu.get(k) ||
     masters.permByKu.get(k) ||
