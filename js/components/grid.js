@@ -96,6 +96,11 @@ export function createGrid(opts) {
     const span = document.createElement("span");
     span.textContent = c.label;
     th.appendChild(span);
+    if (c.type === "rownum") {
+      th.className = "col-rownum";
+      trh.appendChild(th);
+      return; // 행번호 열은 정렬 비활성
+    }
     const sortIcon = document.createElement("span");
     sortIcon.className = "sort-icon";
     th.appendChild(sortIcon);
@@ -338,7 +343,12 @@ export function createGrid(opts) {
       if (row.__dup && col.key === "kucode") td.classList.add("dup-cell");
       // 검색어 하이라이트
       if (hlText && matchesHl(row, col, hlText)) td.classList.add("hl-cell");
-      if (col.type === "multi") {
+      if (col.type === "rownum") {
+        // 행 번호 (표시 전용) — 데이터가 있는 행만 번호 부여
+        td.className = "cell-rownum";
+        const hasData = !!(row.kucode || row.name);
+        td.textContent = hasData ? String(vi + 1).padStart(2, "0") : "";
+      } else if (col.type === "multi") {
         td.appendChild(buildMultiCell(row, col));
       } else if (col.type === "label") {
         // 라벨 클래스를 td 자체에 적용 (chip 대신 셀 전체 배경색)
@@ -505,7 +515,7 @@ export function createGrid(opts) {
 
   function textColIndices() {
     return columns
-      .map((c, i) => (c.type !== "multi" && c.type !== "label" && !c.readonly ? i : null))
+      .map((c, i) => (c.type !== "multi" && c.type !== "label" && c.type !== "rownum" && !c.readonly ? i : null))
       .filter((x) => x !== null);
   }
 

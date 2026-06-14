@@ -1,21 +1,14 @@
-// FLOW 탭 — 4개 서브카테고리(TEAM CAPTAIN / PS / 조퇴 / 신규단기).
-// 쿠코드를 입력하면 DATA 마스터에서 성함/조 등을 자동 채움(read-only).
-// 실시간 구독: subscribeFlow 로 다른 사용자가 추가/수정/삭제한 행을 자동 반영.
+// FLOW 탭 — 4개 카테고리(TEAM CAPTAIN / PS / 조퇴관리 / 신규단기)를 한 화면에 보여주는 보드형.
+// 카테고리별 색상 헤더 + No. 열 + 편집 가능 그리드. 쿠코드 입력 시 DATA 마스터에서 자동 채움.
+// 실시간 구독: subscribeFlow 로 다른 사용자의 추가/수정/삭제 자동 반영.
 
 import { createGrid } from "../components/grid.js";
 import { listMaster, listFlow, upsertFlow, deleteFlow, upsertMaster, subscribeFlow } from "../db.js";
-import { isAdmin, getSession } from "../auth.js";
+import { getSession } from "../auth.js";
 import { showToast } from "../toast.js";
 import { confirmDialog } from "../components/dialog.js";
 
-const SUBS = [
-  { id: "captain", label: "TEAM CAPTAIN" },
-  { id: "ps",      label: "PS" },
-  { id: "leave",   label: "조퇴" },
-  { id: "newTemp", label: "신규단기" },
-];
-
-// TC 포지션 탭의 포지션 라벨 풀 (FLOW > 캡틴/PS 의 포지션 자동완성용)
+// TC 포지션 라벨 풀 (캡틴/PS 의 비고 자동완성용)
 const TC_POSITION_LABELS = [
   "Manager 1", "Manager 2", "Manager 3",
   "Pack Main", "Auto Main", "Auto Sub", "Manual Main", "Manual Sub", "ACE", "Direct (Pack)",
@@ -23,277 +16,294 @@ const TC_POSITION_LABELS = [
   "노쇼파악", "TBM", "PPR", "Live Worker", "근태 공유", "IT 장비 관리",
 ];
 
-function makeColumns(masters) {
-  // 캡틴 마스터에서 쿠코드 + 닉네임 옵션 빌드
-  const captainOpts = [];
-  if (masters?.captainByKu) {
-    for (const [ku, m] of masters.captainByKu.entries()) {
-      const lbl = `${ku}${m?.nickname ? ` · ${m.nickname}` : ""}${m?.name ? ` (${m.name})` : ""}`;
-      captainOpts.push({ value: ku, label: lbl });
-    }
-    captainOpts.sort((a, b) => a.value.localeCompare(b.value));
-  }
-  // PS / Perm / Temp 풀
-  const psOpts = optsFromMaster(masters?.psByKu);
-  const allOpts = [
-    ...psOpts,
-    ...optsFromMaster(masters?.permByKu),
-    ...optsFromMaster(masters?.tempByKu),
-  ];
-  // 중복 제거
-  const seen = new Set();
-  const allUniq = allOpts.filter((o) => {
-    if (seen.has(o.value)) return false;
-    seen.add(o.value); return true;
-  });
+const MIN_ROWS = 15; // 폼처럼 보이도록 기본으로 채우는 행 수
 
-  return {
-    captain: [
-      { key: "kucode",   label: "쿠코드", type: "text", getOptions: () => captainOpts },
-      { key: "name",     label: "성함",   type: "text", readonly: true },
-      { key: "nickname", label: "닉네임", type: "text", readonly: true },
-      { key: "position", label: "포지션(비고)", type: "text", getOptions: () => TC_POSITION_LABELS },
-    ],
-    ps: [
-      { key: "kucode",   label: "쿠코드", type: "text", getOptions: () => psOpts },
-      { key: "name",     label: "성함",   type: "text", readonly: true },
-      { key: "team",     label: "조",     type: "text", readonly: true, width: "80px" },
-      { key: "position", label: "포지션(비고)", type: "text", getOptions: () => TC_POSITION_LABELS },
-    ],
-    leave: [
-      { key: "kucode",    label: "쿠코드", type: "text", getOptions: () => allUniq },
-      { key: "name",      label: "성함",   type: "text", readonly: true },
-      { key: "team",      label: "조",     type: "text", readonly: true, width: "100px" },
-      { key: "leaveTime", label: "조퇴시간(비고)", type: "text" },
-    ],
-    newTemp: [
-      { key: "kucode", label: "쿠코드", type: "text" },
-      { key: "name",   label: "성함",   type: "text" },
-      { key: "gender", label: "성별(비고)", type: "text", getOptions: () => ["남", "여"] },
-    ],
-  };
-}
-
-function optsFromMaster(m) {
-  if (!m) return [];
-  const out = [];
-  for (const [ku, v] of m.entries()) {
-    const lbl = `${ku}${v?.name ? ` · ${v.name}` : ""}${v?.team ? ` (${v.team})` : ""}`;
-    out.push({ value: ku, label: lbl });
-  }
-  return out;
-}
-
-export async function renderFlowTab(root, ctx, params) {
+export async function renderFlowTab(root, ctx) {
   root.innerHTML = "";
   const { shift } = ctx;
-  const subId = params.sub || "captain";
-  const cur = SUBS.find((s) => s.id === subId) || SUBS[0];
+
+  // 마스터 인덱스 (자동 채움용) — 모든 역할 통합 조회
+  const masters = await loadMasters(shift);
+
+  const CATS = makeCats(masters);
 
   const page = document.createElement("div");
-  page.className = "tab-page";
+  page.className = "flow-page";
 
-  // 사이드 네비
-  const side = document.createElement("aside");
-  side.className = "side-nav";
-  const sideTitle = document.createElement("div");
-  sideTitle.className = "side-nav-title";
-  sideTitle.textContent = "FLOW";
-  side.appendChild(sideTitle);
-  SUBS.forEach((s) => {
-    const b = document.createElement("button");
-    b.className = "side-nav-item" + (s.id === subId ? " active" : "");
-    b.textContent = s.label;
-    b.addEventListener("click", () => {
-      location.hash = `#/flow/${s.id}`;
-    });
-    side.appendChild(b);
-  });
-  page.appendChild(side);
-
-  // 본문
-  const body = document.createElement("div");
-  body.className = "tab-body flow-body";
-
-  const actionBar = document.createElement("div");
-  actionBar.className = "action-bar flow-action-bar";
-
+  // 상단 바 — 타이틀 + 날짜 + 검색
+  const top = document.createElement("div");
+  top.className = "flow-top action-bar";
   const h2 = document.createElement("h2");
-  h2.textContent = `${cur.label} (${shift === "day" ? "DAY ☀️" : "SWING 🌙"})`;
-  actionBar.appendChild(h2);
+  h2.innerHTML = `📋 FLOW <span class="muted">(${shift === "day" ? "DAY ☀️" : "SWING 🌙"})</span>`;
+  top.appendChild(h2);
 
   const dateInput = document.createElement("input");
   dateInput.type = "date";
   dateInput.className = "date-input";
   dateInput.value = todayStr();
-  actionBar.appendChild(dateInput);
+  top.appendChild(dateInput);
+
+  const todayBtn = document.createElement("button");
+  todayBtn.className = "btn ghost";
+  todayBtn.textContent = "📅 오늘";
+  todayBtn.addEventListener("click", () => {
+    dateInput.value = todayStr();
+    dateInput.dispatchEvent(new Event("change"));
+  });
+  top.appendChild(todayBtn);
 
   const search = document.createElement("input");
   search.className = "search-input";
-  search.placeholder = "검색";
-  actionBar.appendChild(search);
+  search.placeholder = "🔎 쿠코드/이름/닉네임 검색 (,로 여러 명)";
+  search.title = "매칭되는 사람만 환하게 표시 · ESC 초기화";
+  top.appendChild(search);
 
-  const addBtn = document.createElement("button");
-  addBtn.className = "btn primary";
-  addBtn.innerHTML = "+ 행 추가";
-  actionBar.appendChild(addBtn);
+  page.appendChild(top);
 
-  const clearAllBtn = document.createElement("button");
-  clearAllBtn.className = "btn danger";
-  clearAllBtn.innerHTML = "🗑 전체 삭제";
-  clearAllBtn.title = `이 날짜의 ${cur.label} 항목을 모두 삭제합니다`;
-  actionBar.appendChild(clearAllBtn);
+  // 보드 — 4개 카테고리 카드 가로 배치
+  const board = document.createElement("div");
+  board.className = "flow-board";
+  page.appendChild(board);
 
-  body.appendChild(actionBar);
-
-  const gridHost = document.createElement("div");
-  body.appendChild(gridHost);
-
-  page.appendChild(body);
   root.appendChild(page);
 
-  // 마스터 인덱스 로드 (자동 채움용)
-  const masters = await loadMasters(shift);
-  const COLUMNS = makeColumns(masters);
+  const cards = []; // { cat, grid, unsub, reload, countEl }
 
-  let grid;
-  let unsubFlow = null;
-
-  async function reload() {
-    const date = dateInput.value || todayStr();
-    const rows = await listFlow(shift, cur.id, date);
-    if (!grid) {
-      grid = createGrid({
-        container: gridHost,
-        columns: COLUMNS[cur.id],
-        rows,
-        canDelete: true, // FLOW는 매일 입력이라 누구나 자기 행 정리 가능
-        makeNewRow: () => ({ id: "" }),
-        onCommit: async (row, key, value, prevSnapshot) => {
-          const date = dateInput.value || todayStr();
-          row.date = date;
-          // 쿠코드를 비우면 → 자동 채움 데이터 클리어 + DB에서 행 삭제
-          if (key === "kucode" && !String(value || "").trim()) {
-            if (row.id) {
-              try { await deleteFlow(shift, cur.id, row.id); } catch {}
-            }
-            row.id = "";
-            row.name = "";
-            row.team = "";
-            row.nickname = "";
-            row.position = "";
-            row.leaveTime = "";
-            row.gender = "";
-            return { patch: { name: "", team: "", nickname: "", position: "", leaveTime: "", gender: "" } };
-          }
-          // 쿠코드 없이 다른 컬럼만 입력 — 저장되지 않음을 안내
-          if (!String(row.kucode || "").trim()) {
-            if (key !== "kucode" && String(value || "").trim()) {
-              return { error: "쿠코드를 먼저 입력하세요." };
-            }
-            return {};
-          }
-          // 쿠코드 변경/입력 시 자동 채움
-          if (key === "kucode") {
-            const patch = await autofill(cur.id, value, masters);
-            if (patch) {
-              Object.assign(row, patch);
-              const id = await upsertFlow(shift, cur.id, row.id, {
-                ...sanitize(row),
-                createdBy: getSession()?.nickname || "unknown",
-                createdAt: row.createdAt || Date.now(),
-              });
-              row.id = id;
-              return { patch };
-            } else if (value && cur.id !== "newTemp") {
-              return { error: "DATA에 없는 쿠코드입니다." };
-            }
-          }
-          // 신규단기는 마스터에도 자동 등록 (다음 조회 시 잡히도록)
-          if (cur.id === "newTemp" && row.kucode && row.name) {
-            await upsertMaster(shift, "temp", row.kucode, {
-              kucode: row.kucode,
-              name: row.name,
-            });
-            masters.tempByKu = await indexBy(listMaster(shift, "temp"), "kucode");
-          }
-          // 저장
-          if (row.kucode) {
-            const id = await upsertFlow(shift, cur.id, row.id, {
-              ...sanitize(row),
-              createdBy: getSession()?.nickname || "unknown",
-              createdAt: row.createdAt || Date.now(),
-            });
-            row.id = id;
-          }
-          return {};
-        },
-        onDelete: async (row) => {
-          if (row.id) await deleteFlow(shift, cur.id, row.id);
-        },
-      });
-    } else {
-      grid.setRows(rows);
-    }
+  for (const cat of CATS) {
+    cards.push(makeCatCard(cat, board, shift, dateInput, masters));
   }
 
-  // 날짜별 실시간 구독을 위한 헬퍼
-  let currentDate = dateInput.value || todayStr();
-  async function ensureSubscription() {
-    if (unsubFlow) { try { unsubFlow(); } catch {} unsubFlow = null; }
-    let firstSnapshot = true;
-    unsubFlow = await subscribeFlow(shift, cur.id, currentDate, (rows) => {
-      if (firstSnapshot) { firstSnapshot = false; return; }
-      if (!grid) return;
-      applyDiff(grid, rows);
-    });
-  }
-
-  dateInput.addEventListener("change", async () => {
-    currentDate = dateInput.value || todayStr();
-    await reload();
-    await ensureSubscription();
+  // 날짜 변경 → 모든 카드 reload + 재구독
+  dateInput.addEventListener("change", () => {
+    cards.forEach((c) => c.onDateChange());
   });
+
+  // 검색 — 모든 그리드에 하이라이트(매칭 외 흐리게)
   search.addEventListener("input", () => {
-    if (!grid) return;
-    grid.setFilter(search.value);
-    grid.setHighlight(search.value);
+    cards.forEach((c) => c.grid.setHighlight(search.value));
   });
-  addBtn.addEventListener("click", () => grid && grid.addRow());
-
-  clearAllBtn.addEventListener("click", async () => {
-    const date = dateInput.value || todayStr();
-    const allRows = await listFlow(shift, cur.id, date);
-    const real = allRows.filter((r) => r.id);
-    if (real.length === 0) {
-      showToast("삭제할 항목이 없습니다", "info");
-      return;
-    }
-    const ok = await confirmDialog({
-      title: `${cur.label} 전체 삭제`,
-      danger: true,
-      message: `${date} ${cur.label} 항목 ${real.length}개를 모두 삭제할까요?`,
-      detail: `<div class="conflict-detail">이 동작은 되돌릴 수 없습니다.<br>${shift === "day" ? "DAY ☀️" : "SWING 🌙"} · ${cur.label}</div>`,
-      yes: "전체 삭제", no: "취소",
-    });
-    if (!ok) return;
-    let n = 0;
-    for (const r of real) {
-      try { await deleteFlow(shift, cur.id, r.id); n++; } catch {}
-    }
-    await reload();
-    showToast(`${n}개 삭제 완료`, "success");
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { search.value = ""; cards.forEach((c) => c.grid.setHighlight("")); }
   });
-
-  await reload();
-  await ensureSubscription();
 
   return () => {
-    if (unsubFlow) try { unsubFlow(); } catch {}
-    try { grid?.destroy(); } catch {}
+    cards.forEach((c) => c.destroy());
   };
 }
 
+// ── 카테고리 정의 ──
+function makeCats(masters) {
+  const captainOpts = optsFrom(masters.captainByKu);
+  const psOpts = optsFrom(masters.psByKu);
+  const allOpts = dedupeOpts([
+    ...psOpts,
+    ...optsFrom(masters.permByKu),
+    ...optsFrom(masters.tempByKu),
+    ...optsFrom(masters.cdByKu),
+    ...captainOpts,
+  ]);
+
+  return [
+    {
+      id: "captain", label: "TEAM CAPTAIN", color: "captain",
+      columns: [
+        { key: "_no", label: "No.", type: "rownum", width: "42px" },
+        { key: "kucode",   label: "쿠코드", type: "text", getOptions: () => captainOpts },
+        { key: "nickname", label: "닉네임", type: "text", readonly: true },
+        { key: "name",     label: "성함",   type: "text", readonly: true },
+        { key: "note",     label: "비고",   type: "text", getOptions: () => TC_POSITION_LABELS },
+        { key: "overtime", label: "연장시간", type: "text" },
+      ],
+    },
+    {
+      id: "ps", label: "PS", color: "ps",
+      columns: [
+        { key: "_no", label: "No.", type: "rownum", width: "42px" },
+        { key: "kucode",   label: "쿠코드", type: "text", getOptions: () => psOpts },
+        { key: "nickname", label: "닉네임", type: "text", readonly: true },
+        { key: "name",     label: "성함",   type: "text", readonly: true },
+        { key: "note",     label: "비고",   type: "text", getOptions: () => TC_POSITION_LABELS },
+        { key: "overtime", label: "연장시간", type: "text" },
+      ],
+    },
+    {
+      id: "leave", label: "조퇴관리", color: "leave",
+      columns: [
+        { key: "_no", label: "No.", type: "rownum", width: "42px" },
+        { key: "kucode",    label: "쿠코드", type: "text", getOptions: () => allOpts },
+        { key: "nickname",  label: "닉네임", type: "text", readonly: true },
+        { key: "name",      label: "성함",   type: "text", readonly: true },
+        { key: "leaveTime", label: "조퇴시간", type: "text" },
+        { key: "reason",    label: "사유",   type: "text" },
+      ],
+    },
+    {
+      id: "newTemp", label: "신규단기", color: "newtemp",
+      columns: [
+        { key: "_no", label: "No.", type: "rownum", width: "42px" },
+        { key: "kucode",   label: "쿠코드", type: "text" },
+        { key: "name",     label: "성함",   type: "text" },
+        { key: "gender",   label: "성별",   type: "text", getOptions: () => ["남", "여"] },
+        { key: "note",     label: "비고",   type: "text" },
+      ],
+    },
+  ];
+}
+
+// ── 카테고리 카드 1개 ──
+function makeCatCard(cat, board, shift, dateInput, masters) {
+  const card = document.createElement("section");
+  card.className = `flow-cat flow-cat-${cat.color}`;
+
+  const head = document.createElement("header");
+  head.className = "flow-cat-head";
+  head.innerHTML = `<span class="flow-cat-name">${cat.label}</span><span class="flow-cat-count">0명</span>`;
+  card.appendChild(head);
+
+  const tools = document.createElement("div");
+  tools.className = "flow-cat-tools";
+  const addBtn = document.createElement("button");
+  addBtn.className = "flow-cat-btn";
+  addBtn.textContent = "＋";
+  addBtn.title = "행 추가";
+  const clearBtn = document.createElement("button");
+  clearBtn.className = "flow-cat-btn flow-clear";
+  clearBtn.textContent = "🗑";
+  clearBtn.title = "이 카테고리 비우기";
+  tools.appendChild(addBtn);
+  tools.appendChild(clearBtn);
+  head.appendChild(tools);
+
+  const gridHost = document.createElement("div");
+  gridHost.className = "flow-cat-body";
+  card.appendChild(gridHost);
+  board.appendChild(card);
+
+  const countEl = head.querySelector(".flow-cat-count");
+
+  let grid = null;
+  let unsub = null;
+  let currentDate = dateInput.value || todayStr();
+
+  function refreshCount() {
+    const n = grid ? grid.getRows().filter((r) => r.kucode).length : 0;
+    countEl.textContent = `${n}명`;
+  }
+
+  function padRows(realRows) {
+    const empties = Math.max(MIN_ROWS - realRows.length, 2);
+    const buf = [];
+    for (let i = 0; i < empties; i++) buf.push({ id: "" });
+    return [...realRows, ...buf];
+  }
+
+  grid = createGrid({
+    container: gridHost,
+    columns: cat.columns,
+    rows: [],
+    canDelete: true,
+    selectable: true,
+    copyKeys: ["kucode", "name"],
+    makeNewRow: () => ({ id: "" }),
+    onCommit: async (row, key, value, prevSnapshot) => {
+      const date = dateInput.value || todayStr();
+      row.date = date;
+      const ku = String(row.kucode || "").trim();
+
+      // 쿠코드 비우면 → 자동채움 클리어 + DB 삭제
+      if (key === "kucode" && !ku) {
+        if (row.id) { try { await deleteFlow(shift, cat.id, row.id); } catch {} }
+        row.id = ""; row.name = ""; row.nickname = ""; row.team = "";
+        row.note = ""; row.overtime = ""; row.leaveTime = ""; row.reason = ""; row.gender = "";
+        refreshCount();
+        return { patch: { name: "", nickname: "" } };
+      }
+      // 쿠코드 없이 다른 컬럼 입력 → 안내
+      if (!ku) {
+        if (key !== "kucode" && String(value || "").trim()) return { error: "쿠코드를 먼저 입력하세요." };
+        return {};
+      }
+      // 쿠코드 입력 시 자동 채움 (신규단기 제외 — 수기 입력)
+      if (key === "kucode" && cat.id !== "newTemp") {
+        const fill = autofill(ku, masters);
+        if (fill) {
+          row.name = fill.name; row.nickname = fill.nickname; row.team = fill.team;
+        } else {
+          return { error: "DATA에 없는 쿠코드입니다." };
+        }
+      }
+      // 신규단기는 temp 마스터에도 등록
+      if (cat.id === "newTemp" && ku && row.name) {
+        try {
+          await upsertMaster(shift, "temp", ku, { kucode: ku, name: row.name });
+          masters.tempByKu = indexBy(await listMaster(shift, "temp"), "kucode");
+        } catch {}
+      }
+      // ★ 레이스 방지: upsertFlow await 전에 id 를 미리 할당.
+      //   그래야 await 도중 onSnapshot 이 와도 applyDiff 가 findRow(id) 로 기존 행을 찾아
+      //   patchRow 경로로 가서, 같은 행이 끝에 한 번 더 insert 되는 중복을 막는다.
+      const isCreate = !row.id;
+      if (isCreate) row.id = crypto.randomUUID();
+      const id = await upsertFlow(shift, cat.id, row.id, {
+        ...sanitize(row),
+        createdBy: getSession()?.nickname || "unknown",
+        createdAt: row.createdAt || Date.now(),
+      });
+      row.id = id;
+      refreshCount();
+      return cat.id !== "newTemp" ? { patch: { name: row.name, nickname: row.nickname } } : {};
+    },
+    onDelete: async (row) => {
+      if (row.id) await deleteFlow(shift, cat.id, row.id);
+      refreshCount();
+    },
+  });
+
+  addBtn.addEventListener("click", () => grid.addRow());
+
+  clearBtn.addEventListener("click", async () => {
+    const date = dateInput.value || todayStr();
+    const real = grid.getRows().filter((r) => r.id);
+    if (!real.length) { showToast(`${cat.label}: 삭제할 항목이 없습니다`, "info"); return; }
+    const ok = await confirmDialog({
+      title: `${cat.label} 비우기`, danger: true,
+      message: `${date} ${cat.label} 항목 ${real.length}개를 모두 삭제할까요?`,
+      yes: "삭제", no: "취소",
+    });
+    if (!ok) return;
+    let n = 0;
+    for (const r of real) { try { await deleteFlow(shift, cat.id, r.id); n++; } catch {} }
+    await reload();
+    showToast(`${cat.label} ${n}개 삭제`, "success");
+  });
+
+  async function reload() {
+    currentDate = dateInput.value || todayStr();
+    const rows = await listFlow(shift, cat.id, currentDate);
+    grid.setRows(padRows(rows));
+    refreshCount();
+  }
+
+  async function ensureSubscription() {
+    if (unsub) { try { unsub(); } catch {} unsub = null; }
+    let first = true;
+    unsub = await subscribeFlow(shift, cat.id, currentDate, (rows) => {
+      if (first) { first = false; return; }
+      applyDiff(grid, rows);
+      refreshCount();
+    });
+  }
+
+  reload().then(ensureSubscription);
+
+  return {
+    grid,
+    onDateChange: async () => { await reload(); await ensureSubscription(); },
+    destroy: () => { if (unsub) try { unsub(); } catch {} try { grid.destroy(); } catch {} },
+  };
+}
+
+// remote 행 배열로 grid diff (포커스/미커밋 보존)
 function applyDiff(grid, remoteRows) {
   const remoteMap = new Map();
   remoteRows.forEach((r) => { if (r?.id != null) remoteMap.set(String(r.id), r); });
@@ -312,65 +322,59 @@ function applyDiff(grid, remoteRows) {
 // ---------- helpers ----------
 
 async function loadMasters(shift) {
-  const [captains, ps, perm, temp] = await Promise.all([
+  const [captains, ps, perm, temp, cd] = await Promise.all([
     listMaster(shift, "captain"),
     listMaster(shift, "ps"),
     listMaster(shift, "perm"),
     listMaster(shift, "temp"),
+    listMaster(shift, "cd"),
   ]);
   return {
-    captainByKu: indexByKey(captains, "kucode"),
-    psByKu:      indexByKey(ps, "kucode"),
-    permByKu:    indexByKey(perm, "kucode"),
-    tempByKu:    indexByKey(temp, "kucode"),
+    captainByKu: indexBy(captains, "kucode"),
+    psByKu:      indexBy(ps, "kucode"),
+    permByKu:    indexBy(perm, "kucode"),
+    tempByKu:    indexBy(temp, "kucode"),
+    cdByKu:      indexBy(cd, "kucode"),
   };
 }
 
-function indexByKey(list, key) {
+function indexBy(list, key) {
   const m = new Map();
   for (const r of list) m.set(String(r[key] || r.id), r);
   return m;
 }
-async function indexBy(promiseList, key) {
-  return indexByKey(await promiseList, key);
+
+function optsFrom(m) {
+  if (!m) return [];
+  const out = [];
+  for (const [ku, v] of m.entries()) {
+    const lbl = `${ku}${v?.nickname ? ` · ${v.nickname}` : ""}${v?.name ? ` (${v.name})` : ""}`;
+    out.push({ value: ku, label: lbl });
+  }
+  return out;
 }
 
-async function autofill(subId, kucode, masters) {
-  const ku = String(kucode || "").trim();
-  if (!ku) return null;
-  if (subId === "captain") {
-    const m = masters.captainByKu.get(ku);
-    if (m) return { name: m.name || "", nickname: m.nickname || "" };
-    return null;
-  }
-  if (subId === "ps") {
-    const m = masters.psByKu.get(ku);
-    if (m) return { name: m.name || "", team: m.team || "" };
-    return null;
-  }
-  if (subId === "leave") {
-    // ps → perm → temp 순으로 조회
-    const ps = masters.psByKu.get(ku);
-    if (ps) return { name: ps.name || "", team: ps.team || "" };
-    const perm = masters.permByKu.get(ku);
-    if (perm) return { name: perm.name || "", team: perm.team || "" };
-    const temp = masters.tempByKu.get(ku);
-    if (temp) return { name: temp.name || "", team: "단기직" };
-    return null;
-  }
-  if (subId === "newTemp") {
-    // 신규단기는 자동 채움하지 않음 (사용자가 직접 입력)
-    return null;
-  }
-  return null;
+function dedupeOpts(opts) {
+  const seen = new Set();
+  return opts.filter((o) => (seen.has(o.value) ? false : (seen.add(o.value), true)));
+}
+
+// 모든 마스터에서 쿠코드 조회 → 성함/닉네임/조 자동 채움
+function autofill(ku, masters) {
+  const k = String(ku).trim();
+  const m =
+    masters.captainByKu.get(k) ||
+    masters.psByKu.get(k) ||
+    masters.permByKu.get(k) ||
+    masters.tempByKu.get(k) ||
+    masters.cdByKu.get(k);
+  if (!m) return null;
+  return { name: m.name || "", nickname: m.nickname || "", team: m.team || "" };
 }
 
 function todayStr() {
   const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function sanitize(row) {

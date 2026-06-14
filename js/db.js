@@ -330,7 +330,7 @@ export async function listMaster(shift, role) {
   const { rows: fbRows, auth } = await safeRead(async () => {
     const { db, fs } = await ensureFirebase();
     const snap = await fs.getDocs(fs.collection(db, ...scope.segs));
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return snap.docs.map((d) => ({ ...d.data(), id: d.id }));
   });
   const merged = mergeRows(fbRows || [], ls, readPending(scope.lsKey), auth);
   if (auth) { reconcileMirror(scope.lsKey, merged); scheduleFlush(scope); }
@@ -499,7 +499,7 @@ export async function listFlow(shift, type, date) {
     const ref = fs.collection(db, ...scope.segs);
     const q = fs.query(ref, fs.where("date", "==", date));
     const snap = await fs.getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return snap.docs.map((d) => ({ ...d.data(), id: d.id }));
   });
   const merged = mergeRows(fbRows || [], ls, readPending(scope.lsKey), auth);
   if (auth) { reconcileMirror(scope.lsKey, merged, (r) => r.date === date); scheduleFlush(scope); }
@@ -559,7 +559,7 @@ export async function listOps(shift, kind, date) {
     const ref = fs.collection(db, ...scope.segs);
     const q = fs.query(ref, fs.where("date", "==", date));
     const snap = await fs.getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return snap.docs.map((d) => ({ ...d.data(), id: d.id }));
   });
   const merged = mergeRows(fbRows || [], ls, readPending(scope.lsKey), auth);
   if (auth) { reconcileMirror(scope.lsKey, merged, (r) => r.date === date); scheduleFlush(scope); }
@@ -573,7 +573,7 @@ export async function listFlowAll(shift, kind) {
   const { rows: fbRows, auth } = await safeRead(async () => {
     const { db, fs } = await ensureFirebase();
     const snap = await fs.getDocs(fs.collection(db, ...scope.segs));
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return snap.docs.map((d) => ({ ...d.data(), id: d.id }));
   });
   const merged = mergeRows(fbRows || [], ls, readPending(scope.lsKey), auth);
   if (auth) { reconcileMirror(scope.lsKey, merged); scheduleFlush(scope); }
@@ -630,7 +630,7 @@ export async function listShare(shift, kind) {
   const { rows: fbRows, auth } = await safeRead(async () => {
     const { db, fs } = await ensureFirebase();
     const snap = await fs.getDocs(fs.collection(db, ...scope.segs));
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return snap.docs.map((d) => ({ ...d.data(), id: d.id }));
   });
   const merged = mergeRows(fbRows || [], ls, readPending(scope.lsKey), auth);
   if (auth) { reconcileMirror(scope.lsKey, merged); scheduleFlush(scope); }
@@ -822,7 +822,7 @@ export async function listHeadcountRange(shift, fromDate, toDate) {
         fs.where(fs.documentId(), "<=", `${shift}_${toDate}`),
       );
       const snap = await fs.getDocs(q);
-      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      return snap.docs.map((d) => ({ ...d.data(), id: d.id }));
     },
     () => []
   );
@@ -980,7 +980,7 @@ async function subscribeList(scope, lsFilter, datePred, callback, makeQuery) {
       const q = makeQuery(db, fs);
       const unsub = fs.onSnapshot(
         q,
-        (snap) => fire(snap.docs.map((d) => ({ id: d.id, ...d.data() })), true),
+        (snap) => fire(snap.docs.map((d) => ({ ...d.data(), id: d.id })), true),
         (err) => { classifyFsError(err); fire(null, false); }
       );
       fire(null, false);
@@ -1206,7 +1206,7 @@ async function listFlowSnapshot(shift, type) {
   const { rows: fbRows, auth } = await safeRead(async () => {
     const { db, fs } = await ensureFirebase();
     const snap = await fs.getDocs(fs.collection(db, ...scope.segs));
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return snap.docs.map((d) => ({ ...d.data(), id: d.id }));
   });
   const merged = mergeRows(fbRows || [], ls, readPending(scope.lsKey), auth);
   if (auth) { reconcileMirror(scope.lsKey, merged); scheduleFlush(scope); }
