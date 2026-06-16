@@ -47,12 +47,12 @@ const MASTER_HEADERS = {
   manager: ["kucode", "name", "nickname", "note"],
   captain: ["kucode", "name", "nickname", "note"],
   ps:      ["kucode", "name", "team", "note"],
-  perm:    ["kucode", "name", "team", "hiSkill", "special", "note"],
-  temp:    ["kucode", "name", "hiSkill", "special", "note"],
+  perm:    ["kucode", "name", "team", "packable", "hiSkill", "special", "note"],
+  temp:    ["kucode", "name", "packable", "hiSkill", "special", "note"],
 };
 const MASTER_LABELS = {
   kucode: "쿠코드", name: "성함", nickname: "닉네임", team: "조",
-  hiSkill: "하이스킬", special: "특수", note: "비고",
+  packable: "팩가능자", hiSkill: "하이스킬", special: "특수", note: "비고",
 };
 
 export async function exportMasterCsv(shift, role) {

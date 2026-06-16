@@ -22,6 +22,7 @@ export function loadXLSX() {
 
 // 카테고리별 시트 컬럼 정의 — tab-data.js 의 그리드 컬럼과 동일한 키/허용값
 const HI_OPTS = ["메뉴얼팩", "오토백", "집품", "워터"];
+const PK_OPTS = ["메뉴얼", "오토백"]; // 팩가능자 (단순 가능자 — M/A 블록만, 이름 색 X)
 const SP_PERM = ["오더피커", "AGV", "워터", "메뉴얼 멀티", "오토백 멀티"];
 const SP_TEMP = ["AGV", "워터", "메뉴얼 멀티", "오토백 멀티"];
 
@@ -56,22 +57,24 @@ const ROLE_SHEETS = {
   perm: {
     label: "PERM",
     cols: [
-      { key: "kucode",  label: "쿠코드",   required: true, width: 14 },
-      { key: "name",    label: "성함",     required: true, width: 14 },
-      { key: "team",    label: "조",       width: 10 },
-      { key: "hiSkill", label: "하이스킬", multi: HI_OPTS, width: 24 },
-      { key: "special", label: "특수",     multi: SP_PERM, width: 18 },
-      { key: "note",    label: "비고",     width: 24 },
+      { key: "kucode",   label: "쿠코드",   required: true, width: 14 },
+      { key: "name",     label: "성함",     required: true, width: 14 },
+      { key: "team",     label: "조",       width: 10 },
+      { key: "packable", label: "팩가능자", multi: PK_OPTS, width: 14 },
+      { key: "hiSkill",  label: "하이스킬", multi: HI_OPTS, width: 24 },
+      { key: "special",  label: "특수",     multi: SP_PERM, width: 18 },
+      { key: "note",     label: "비고",     width: 24 },
     ],
   },
   temp: {
     label: "TEMP",
     cols: [
-      { key: "kucode",  label: "쿠코드",   required: true, width: 14 },
-      { key: "name",    label: "성함",     required: true, width: 14 },
-      { key: "hiSkill", label: "하이스킬", multi: HI_OPTS, width: 24 },
-      { key: "special", label: "특수",     multi: SP_TEMP, width: 18 },
-      { key: "note",    label: "비고",     width: 24 },
+      { key: "kucode",   label: "쿠코드",   required: true, width: 14 },
+      { key: "name",     label: "성함",     required: true, width: 14 },
+      { key: "packable", label: "팩가능자", multi: PK_OPTS, width: 14 },
+      { key: "hiSkill",  label: "하이스킬", multi: HI_OPTS, width: 24 },
+      { key: "special",  label: "특수",     multi: SP_TEMP, width: 18 },
+      { key: "note",     label: "비고",     width: 24 },
     ],
   },
   cd: {

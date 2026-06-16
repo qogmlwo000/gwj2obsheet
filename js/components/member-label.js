@@ -90,12 +90,13 @@ export function buildMemberLabel(member, fallbackName = "") {
     return { html: escape(txt), classes: ["lbl-cd"], plainText: txt };
   }
 
-  // PERM / TEMP — 하이스킬 + 특수 라벨
+  // PERM / TEMP — 이름 색상은 '진짜 하이스킬러'(하이스킬 필드)만.
+  // 팩가능자(packable)·멀티는 이름 색 없음 — M/A/P 블록(buildSkillFlags)에서만 표시.
   const hi = Array.isArray(member.hiSkill) ? member.hiSkill : [];
   const sp = Array.isArray(member.special) ? member.special : [];
-  // 하이스킬 (메뉴얼팩 / 오토백 / 집품 / 워터)
-  const isManual  = hi.includes("메뉴얼팩") || hi.includes("메뉴얼") || sp.includes("메뉴얼 멀티");
-  const isAutoBag = hi.includes("오토백") || sp.includes("오토백 멀티");
+  // 하이스킬러 이름 색 (메뉴얼팩 / 오토백 / 집품 / 워터)
+  const isManual  = hi.includes("메뉴얼팩") || hi.includes("메뉴얼");
+  const isAutoBag = hi.includes("오토백");
   const isPick    = hi.includes("집품");
   const isWaterHi = hi.includes("워터");
   // 특수 (오더피커 / AGV / 워터)
@@ -124,12 +125,14 @@ export function buildMemberLabel(member, fallbackName = "") {
 export function buildSkillFlags(member) {
   const hi = Array.isArray(member?.hiSkill) ? member.hiSkill : [];
   const sp = Array.isArray(member?.special) ? member.special : [];
+  const pk = Array.isArray(member?.packable) ? member.packable : [];
   const manualMulti  = sp.includes("메뉴얼 멀티");
   const autobagMulti = sp.includes("오토백 멀티");
+  // M/A/P 블록 = 팩가능자 ∪ 하이스킬 ∪ 멀티 (단순 가능자도 블록엔 표시, 이름 색은 없음)
   return {
-    manual:       hi.includes("메뉴얼팩") || hi.includes("메뉴얼") || manualMulti,
+    manual:       pk.includes("메뉴얼") || hi.includes("메뉴얼팩") || hi.includes("메뉴얼") || manualMulti,
     manualMulti,
-    autobag:      hi.includes("오토백") || autobagMulti,
+    autobag:      pk.includes("오토백") || hi.includes("오토백") || autobagMulti,
     autobagMulti,
     agv:          sp.includes("AGV"),
   };
