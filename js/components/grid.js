@@ -41,6 +41,13 @@ export function createGrid(opts) {
   let filterText = "";
   let hlText = highlightText || "";
   let sortState = { key: null, dir: 1 };
+
+  // ── 가상 스크롤(windowing) — 화면에 보이는 행만 DOM 으로 렌더 ──
+  const OVERSCAN = 8;        // 위/아래 여유 행
+  let rowH = 0;              // 측정된 행 높이(px)
+  let rowHMeasured = false;
+  let scrollRaf = null;
+  let lastWin = { start: -1, end: -1 }; // 현재 렌더된 창 — 스크롤 시 변할 때만 재렌더
   const selected = new Set();
   let lastClickedIndex = -1;
   // 체크박스 mousedown + drag 로 범위 선택
@@ -150,6 +157,46 @@ export function createGrid(opts) {
   }
   document.addEventListener("mouseup", onMouseUp);
 
+  // 스크롤 시 — 창(window)이 실제로 바뀔 때만 재렌더.
+  // (창이 그대로면 재렌더 안 함 → 입력 중 포커스/미커밋 값 보존, 불필요한 rebuild 방지)
+  function onGridScroll() {
+    if (scrollRaf) return;
+    scrollRaf = requestAnimationFrame(() => {
+      scrollRaf = null;
+      const h = rowH || 34;
+      const total = visibleRows().length;
+      const count = Math.ceil((scroll.clientHeight || 600) / h) + OVERSCAN * 2;
+      let start = Math.max(0, Math.floor(scroll.scrollTop / h) - OVERSCAN);
+      if (start + count > total) start = Math.max(0, total - count);
+      if (start !== lastWin.start) render();
+    });
+  }
+  scroll.addEventListener("scroll", onGridScroll, { passive: true });
+
+  function totalCols() {
+    return columns.length + (canDelete ? 1 : 0) + (selectable ? 1 : 0);
+  }
+  // 윈도우 위/아래 여백을 채우는 스페이서 행 (스크롤바 높이 유지)
+  function spacerRow(h) {
+    const tr = document.createElement("tr");
+    tr.className = "grid-vspacer";
+    tr.setAttribute("aria-hidden", "true");
+    const td = document.createElement("td");
+    td.colSpan = totalCols();
+    td.style.height = `${h}px`;
+    tr.appendChild(td);
+    return tr;
+  }
+  // 데이터 인덱스 vi 가 뷰포트에 보이도록 스크롤 + 필요 시 재렌더
+  function ensureIndexVisible(vi) {
+    const h = rowH || 34;
+    const top = vi * h;
+    const vpH = scroll.clientHeight || 600;
+    if (top < scroll.scrollTop) { scroll.scrollTop = top; render(); }
+    else if (top + h > scroll.scrollTop + vpH) { scroll.scrollTop = top - vpH + h * 2; render(); }
+    else if (!tbody.querySelector(`tr[data-vindex="${vi}"]`)) { render(); }
+  }
+
   // 셀 드래그 범위 선택 적용 — 시작 행 ~ 현재 행 사이를 모두 체크
   function applyDragRange(curVi) {
     if (!pendingDrag) return;
@@ -198,6 +245,9 @@ export function createGrid(opts) {
 
   function render() {
     const focusState = saveFocusState();
+    // tbody 를 비우면 콘텐츠 높이가 0이 돼 브라우저가 scrollTop 을 0으로 리셋함 →
+    // 재구성 후 원래 스크롤 위치를 복원 (가상 스크롤 필수).
+    const keepScrollTop = scroll.scrollTop;
 
     thead.querySelectorAll("th").forEach((th) => {
       const k = th.dataset.colKey;
@@ -221,8 +271,7 @@ export function createGrid(opts) {
     if (visible.length === 0) {
       const tr = document.createElement("tr");
       const td = document.createElement("td");
-      td.colSpan =
-        columns.length + (canDelete ? 1 : 0) + (selectable ? 1 : 0);
+      td.colSpan = totalCols();
       td.className = "grid-empty";
       td.textContent = emptyText || (filterText
         ? "검색 결과가 없습니다."
@@ -230,11 +279,27 @@ export function createGrid(opts) {
       tr.appendChild(td);
       tbody.appendChild(tr);
     } else {
-      visible.forEach((row, vi) => {
-        const tr = renderRow(row, vi);
-        tbody.appendChild(tr);
-      });
+      // ── 가상 스크롤: 뷰포트에 보이는 행 + overscan 만 렌더 ──
+      const total = visible.length;
+      const h = rowH || 34;
+      const vpH = scroll.clientHeight || 600;
+      // keepScrollTop 사용 — tbody.innerHTML="" 직후 scroll.scrollTop 은 0으로 리셋됐기 때문
+      let start = Math.max(0, Math.floor(keepScrollTop / h) - OVERSCAN);
+      const count = Math.ceil(vpH / h) + OVERSCAN * 2;
+      if (start + count > total) start = Math.max(0, total - count);
+      const end = Math.min(total, start + count);
+
+      if (start > 0) tbody.appendChild(spacerRow(start * h));
+      for (let i = start; i < end; i++) {
+        tbody.appendChild(renderRow(visible[i], i));
+      }
+      if (end < total) tbody.appendChild(spacerRow((total - end) * h));
+      lastWin = { start, end };
     }
+    if (visible.length === 0) lastWin = { start: 0, end: 0 };
+
+    // 스페이서로 전체 높이 복원됐으니 원래 스크롤 위치로 되돌림
+    if (scroll.scrollTop !== keepScrollTop) scroll.scrollTop = keepScrollTop;
 
     if (selected.size > 0) {
       selBar.style.display = "";
@@ -244,11 +309,24 @@ export function createGrid(opts) {
     }
 
     restoreFocusState(focusState);
+
+    // 첫 페인트 후 실제 행 높이 1회 측정 — 추정치와 다르면 한 번만 다시 그림
+    if (!rowHMeasured) {
+      const sample = tbody.querySelector("tr[data-vindex]");
+      if (sample) {
+        const measured = sample.offsetHeight;
+        rowHMeasured = true;
+        if (measured && Math.abs(measured - (rowH || 34)) > 1) { rowH = measured; render(); return; }
+        rowH = measured || rowH || 34;
+      }
+    }
   }
 
   function renderRow(row, vi) {
     const tr = document.createElement("tr");
     tr.dataset.rowId = row[rowIdKey] ?? "";
+    tr.dataset.vindex = vi;
+    tr.classList.add(vi % 2 ? "v-odd" : "v-even"); // 가상 스크롤 — nth-child 대신 명시 줄무늬
     if (selected.has(row)) tr.classList.add("row-selected");
     // 검색 중이면 매칭 안 되는 행은 어둡게(반투명) — 검색한 사람만 환하게
     if (hlText) {
@@ -501,7 +579,9 @@ export function createGrid(opts) {
       addRowAndFocus(ci);
       return;
     }
-    const tr = tbody.children[vi];
+    if (vi < 0) return;
+    ensureIndexVisible(vi); // 창 밖이면 스크롤 + 재렌더
+    const tr = tbody.querySelector(`tr[data-vindex="${vi}"]`);
     if (!tr) return;
     const inputs = tr.querySelectorAll(".cell-input");
     const idx = colInputIndex(ci);
@@ -547,6 +627,7 @@ export function createGrid(opts) {
     if (sortState.key !== key) sortState = { key, dir: 1 };
     else if (sortState.dir === 1) sortState = { key, dir: -1 };
     else sortState = { key: null, dir: 0 };
+    scroll.scrollTop = 0; // 정렬 바뀌면 맨 위로 — 창이 범위 밖에 머무는 것 방지
     render();
   }
 
@@ -742,7 +823,7 @@ export function createGrid(opts) {
     getRows() { return rows.slice(); },
     getSelected() { return [...selected]; },
     clearSelection() { selected.clear(); render(); },
-    setFilter(text) { filterText = text || ""; render(); },
+    setFilter(text) { filterText = text || ""; scroll.scrollTop = 0; render(); },
     setHighlight(text) { hlText = text || ""; render(); },
     refresh() { render(); },
 
@@ -799,6 +880,8 @@ export function createGrid(opts) {
     destroy() {
       document.removeEventListener("keydown", onCopyKey);
       document.removeEventListener("mouseup", onMouseUp);
+      scroll.removeEventListener("scroll", onGridScroll);
+      if (scrollRaf) { cancelAnimationFrame(scrollRaf); scrollRaf = null; }
       try { wrap.remove(); } catch {}
     },
   };

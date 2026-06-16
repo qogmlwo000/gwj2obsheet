@@ -805,8 +805,13 @@ a:hover { text-decoration: underline; }
 }
 .grid thead th.col-actions { width: 44px; padding: 0; }
 .grid tbody tr { background: var(--surface); }
-.grid tbody tr:nth-child(even) { background: var(--bg); }
+/* 가상 스크롤: 스페이서 행이 끼면 nth-child 가 어긋나므로 데이터 인덱스 기준 명시 줄무늬 */
+.grid tbody tr.v-odd { background: var(--bg); }
 .grid tbody tr:hover { background: var(--accent-soft); }
+/* 가상 스크롤 여백 행 — 줄무늬/호버/테두리 없음 */
+.grid tbody tr.grid-vspacer,
+.grid tbody tr.grid-vspacer:hover { background: transparent; }
+.grid tbody tr.grid-vspacer td { padding: 0; border: 0; }
 
 .grid td {
   padding: 0;
