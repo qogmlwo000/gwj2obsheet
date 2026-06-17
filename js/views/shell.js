@@ -8,6 +8,7 @@ import { renderPickTab } from "./tab-pick.js";
 import { renderShareTab } from "./tab-share.js";
 import { renderTCPosTab } from "./tab-tcpos.js";
 import { renderHeadcountTab } from "./tab-headcount.js";
+import { renderRawTab } from "./tab-raw.js";
 import { openSettings } from "./settings.js";
 import { makeClock } from "../components/clock.js";
 import { confirmDialog } from "../components/dialog.js";
@@ -278,6 +279,7 @@ async function routeFromHash() {
 
   let result;
   if (tabId === "data")            result = renderDataTab(bodyHost, ctx, params);
+  else if (tabId === "raw")        result = renderRawTab(bodyHost, ctx, params);
   else if (tabId === "headcount")  result = renderHeadcountTab(bodyHost, ctx, params);
   else if (tabId === "flow")       result = renderFlowTab(bodyHost, ctx, params);
   else if (tabId === "pack")       result = renderPackTab(bodyHost, ctx, params);
@@ -296,13 +298,7 @@ async function routeFromHash() {
 
 function renderPlaceholder(tabId) {
   bodyHost.innerHTML = "";
-  const labels = {
-    raw: {
-      icon: "🚧",
-      title: "RAW 데이터",
-      desc: "준비 중 — 향후 PACK/PICK HTP(시간당 처리량) 집계를 위한 원본 데이터 영역이 추가됩니다.<br><br><small>완성 시: 일자별 작업 시작/종료 시각, 처리 건수 자동 산출, 사원 카드의 평균 HTP 통계 연동.</small>",
-    },
-  };
+  const labels = {};
   const info = labels[tabId] || { icon: "🚧", title: tabId, desc: "준비 중" };
   const ph = document.createElement("div");
   ph.className = "placeholder";

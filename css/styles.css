@@ -782,6 +782,19 @@ a:hover { text-decoration: underline; }
 /* 중복제거 버튼은 액션바 우측 끝 */
 .action-bar .dedupe-btn { margin-left: auto; }
 .grid-scroll { overflow: auto; max-height: calc(100vh - 240px); }
+
+/* RAW (HTP) 업로드 패널 */
+.raw-panel {
+  margin-top: 12px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  max-width: 760px;
+}
+.raw-desc { color: var(--text-muted); font-size: 13px; line-height: 1.65; margin: 0 0 16px; }
+.raw-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.raw-status { margin-top: 16px; font-size: 13px; color: var(--text); }
 .grid {
   width: 100%;
   min-width: max-content;
@@ -1452,9 +1465,16 @@ a:hover { text-decoration: underline; }
   max-height: max(320px, calc(100vh - 220px));
   overflow-y: auto;
 }
-/* 수직 스택 컬럼(싱귤/멀티)은 두 카드가 한 화면에 들어오도록 절반씩 */
+/* 수직 스택 컬럼(싱귤/멀티)은 두 카드가 한 화면에 들어오도록 분배 */
 .pp-col .pp-card .pp-card-body {
   max-height: max(280px, calc(50vh - 140px));
+}
+/* 노트북 한 화면: 싱귤은 인원이 많으니 더 길게, 멀티는 짧게 (≈66/34) */
+.pp-col .pp-card[data-sub="싱귤"] .pp-card-body {
+  max-height: max(360px, calc(66vh - 150px));
+}
+.pp-col .pp-card[data-sub="멀티"] .pp-card-body {
+  max-height: max(160px, calc(30vh - 96px));
 }
 .pp-card-body .grid-wrap { border: none; border-radius: 0; }
 .pp-card-body .grid-scroll { max-height: none; overflow: visible; }

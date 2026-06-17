@@ -157,6 +157,87 @@ export async function exportMasterXlsx(shift, role, rows) {
   XLSX.writeFile(wb, `gw2ob-${shift}-${role}-${ymd()}.xlsx`);
 }
 
+// ── RAW (HTP) 템플릿 / 파싱 ──
+// 시스템 RAW 추출본 컬럼: Date / TaskCode / 쿠코드 / LoginID / EmployeeType / ShiftType / 합계 : UnitQty / 합계 : TotalHours
+const RAW_HEADERS = ["Date", "TaskCode", "쿠코드", "LoginID", "EmployeeType", "ShiftType", "합계 : UnitQty", "합계 : TotalHours"];
+
+export async function downloadRawTemplate() {
+  const XLSX = await loadXLSX();
+  const ws = XLSX.utils.aoa_to_sheet([
+    RAW_HEADERS,
+    ["2026-06-15", "PACKING", "S1234567", "20828728", "PERM", "SWING", 431, 4.58],
+    ["2026-06-15", "PICKING", "S1234567", "20828728", "PERM", "SWING", 980, 5.10],
+  ]);
+  ws["!cols"] = RAW_HEADERS.map((h) => ({ wch: Math.max(12, h.length + 2) }));
+  const guide = XLSX.utils.aoa_to_sheet([
+    ["GWJ2 OB PDA 일지 — RAW (HTP) 업로드 템플릿"], [],
+    ["1. 시스템에서 내려받은 RAW 데이터를 'RAW' 시트에 그대로 붙여넣으세요."],
+    ["2. 필수 컬럼: TaskCode / 쿠코드 / 합계 : UnitQty / 합계 : TotalHours (다른 컬럼은 있어도 무시)"],
+    ["3. TaskCode 가 PACKING 이면 팩 HTP, PICKING 이면 픽 HTP 로 집계됩니다."],
+    ["4. HTP = Σ(UnitQty) ÷ Σ(TotalHours) — 쿠코드별 합산 (조 무관)."],
+    ["5. 업로드하면 기존 HTP 전체가 새 데이터로 교체됩니다."],
+  ]);
+  guide["!cols"] = [{ wch: 72 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "RAW");
+  XLSX.utils.book_append_sheet(wb, guide, "작성 안내");
+  XLSX.writeFile(wb, "gw2ob-raw-htp-템플릿.xlsx");
+}
+
+// RAW 파일 → 쿠코드별 { pq, ph, kq, kh } 집계.
+// 반환: { table, kucodeCount, dataRows, packRows, pickRows, skipped }
+export async function parseRawHtpFile(file) {
+  const XLSX = await loadXLSX();
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
+  const sheetName =
+    wb.SheetNames.find((n) => n.trim().toUpperCase() === "RAW") ||
+    wb.SheetNames.find((n) => !n.includes("안내")) ||
+    wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
+  if (!ws) throw new Error("시트를 찾을 수 없습니다.");
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
+  if (!aoa.length) throw new Error("빈 파일입니다.");
+
+  const norm = (s) => String(s ?? "").toLowerCase().replace(/[\s:합계]/g, "");
+  let headerIdx = -1;
+  let col = {};
+  for (let i = 0; i < Math.min(aoa.length, 6); i++) {
+    const cells = (aoa[i] || []).map(norm);
+    const find = (sub) => cells.findIndex((c) => c.includes(sub));
+    const task = find("taskcode");
+    const ku = cells.findIndex((c) => c.includes("쿠코드") || c.includes("kucode"));
+    const qty = find("unitqty");
+    const hrs = find("totalhours");
+    if (task >= 0 && ku >= 0 && qty >= 0 && hrs >= 0) { headerIdx = i; col = { task, ku, qty, hrs }; break; }
+  }
+  if (headerIdx < 0) {
+    throw new Error("헤더를 찾을 수 없습니다 (TaskCode / 쿠코드 / UnitQty / TotalHours 필요).");
+  }
+
+  const table = {};
+  let packRows = 0, pickRows = 0, skipped = 0;
+  for (let i = headerIdx + 1; i < aoa.length; i++) {
+    const r = aoa[i] || [];
+    if (r.every((c) => String(c ?? "").trim() === "")) continue;
+    const ku = String(r[col.ku] ?? "").trim();
+    const task = String(r[col.task] ?? "").trim().toUpperCase();
+    const qty = Number(r[col.qty]);
+    const hrs = Number(r[col.hrs]);
+    if (!ku || !Number.isFinite(qty) || !Number.isFinite(hrs)) { skipped++; continue; }
+    const e = table[ku] || (table[ku] = { pq: 0, ph: 0, kq: 0, kh: 0 });
+    if (task.includes("PACK")) { e.pq += qty; e.ph += hrs; packRows++; }
+    else if (task.includes("PICK")) { e.kq += qty; e.kh += hrs; pickRows++; }
+    else skipped++;
+  }
+  return {
+    table,
+    kucodeCount: Object.keys(table).length,
+    dataRows: aoa.length - headerIdx - 1,
+    packRows, pickRows, skipped,
+  };
+}
+
 // ── 가져오기: .xlsx / .xls / .csv 파싱 + 정규화 ──
 // 반환: { rows, dupCount, skippedNoKucode, invalidTokens }
 export async function parseMasterFile(file, role) {

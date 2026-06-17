@@ -2,7 +2,7 @@
 // 평균 PACK HTP / PICK HTP, 자주 들어가던 라인 1·2위, 특이사항.
 // HTP는 RAW 데이터가 정의되면 거기서 계산. 지금은 자리만.
 
-import { listFlowAll, getSpecialNote, setSpecialNote } from "../db.js";
+import { listFlowAll, getSpecialNote, setSpecialNote, getHtpTable } from "../db.js";
 import { isAdmin, getSession } from "../auth.js";
 import { showToast } from "../toast.js";
 
@@ -70,9 +70,10 @@ export async function openMemberCard(member, ctx) {
   modal.querySelector(".mc-close").addEventListener("click", closeCard);
   backdrop.addEventListener("click", (e) => { if (e.target === backdrop) closeCard(); });
 
-  // 자주 들어가던 라인 집계 + 특이사항 로드
+  // 자주 들어가던 라인 집계 + HTP + 특이사항 로드
   await Promise.all([
     fillFrequent(modal, member, ctx),
+    fillHtp(modal, member),
     fillNote(modal, member),
   ]);
 
@@ -166,6 +167,30 @@ async function fillFrequent(modal, member, ctx) {
   } catch (e) {
     console.warn(e);
     cards.forEach((c) => { c.textContent = "조회 실패"; });
+  }
+}
+
+// RAW 업로드로 집계된 HTP 표시 — 팩/픽 = Σ(UnitQty)/Σ(TotalHours)
+async function fillHtp(modal, member) {
+  const ku = String(member.kucode || member.id || "");
+  const setStat = (key, val, sub) => {
+    const v = modal.querySelector(`[data-stat="${key}"]`);
+    if (v) v.textContent = val;
+    const subEl = v?.closest(".mc-stat")?.querySelector(".mc-stat-sub");
+    if (subEl) subEl.textContent = sub;
+  };
+  try {
+    const t = await getHtpTable();
+    const e = ku ? (t.table || {})[ku] : null;
+    const fmt = (q, h) => (h > 0 ? (q / h) : null);
+    const pack = e ? fmt(e.pq, e.ph) : null;
+    const pick = e ? fmt(e.kq, e.kh) : null;
+    setStat("pack-htp", pack != null ? pack.toFixed(1) : "—",
+      pack != null ? `${Math.round(e.pq).toLocaleString()} ÷ ${e.ph.toFixed(1)}h` : "데이터 없음");
+    setStat("pick-htp", pick != null ? pick.toFixed(1) : "—",
+      pick != null ? `${Math.round(e.kq).toLocaleString()} ÷ ${e.kh.toFixed(1)}h` : "데이터 없음");
+  } catch (e) {
+    console.warn("htp fill failed", e);
   }
 }
 

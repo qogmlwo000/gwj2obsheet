@@ -891,6 +891,44 @@ export async function setSpecialNote(kucode, note, by = "") {
 }
 
 // =================================================================
+// RAW / HTP — 단일 문서(settings/htp)에 쿠코드별 집계 저장 (조 무관 합산)
+// table 형태: { [kucode]: { pq, ph, kq, kh } }
+//   pq/ph = PACKING UnitQty·TotalHours 합, kq/kh = PICKING 합
+//   HTP = pq/ph (팩), kq/kh (픽).  업로드 시 전체 교체(setDoc, merge 아님).
+// =================================================================
+export async function getHtpTable() {
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const snap = await fs.getDoc(fs.doc(db, "settings", "htp"));
+      const data = snap.exists() ? snap.data() : { table: {}, updatedAt: 0, count: 0 };
+      writeLS(LS_PREFIX + "htp", data);
+      return data;
+    },
+    () => readLS(LS_PREFIX + "htp") || { table: {}, updatedAt: 0, count: 0 }
+  );
+}
+
+export async function setHtpTable(table, by = "") {
+  const payload = {
+    table: table || {},
+    updatedAt: Date.now(),
+    updatedBy: by,
+    count: Object.keys(table || {}).length,
+  };
+  const lsWrite = () => writeLS(LS_PREFIX + "htp", payload);
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await fs.setDoc(fs.doc(db, "settings", "htp"), payload); // 전체 교체
+      lsWrite();
+      return payload;
+    },
+    () => { lsWrite(); return payload; }
+  );
+}
+
+// =================================================================
 // Audit log
 // =================================================================
 

@@ -73,9 +73,9 @@ export function buildMemberLabel(member, fallbackName = "") {
     const txt = `👑 ${nick || name} - ${name}`;
     return { html: escape(txt), classes: ["lbl-manager"], plainText: txt };
   }
-  // 팀 캡틴
+  // 팀 캡틴 — PACK/PICK 등에서는 닉네임만 표시 (👑 닉네임)
   if (role === "captain") {
-    const txt = `👑 ${nick || name} - ${name}`;
+    const txt = `👑 ${nick || name}`;
     return { html: escape(txt), classes: ["lbl-captain"], plainText: txt };
   }
   // PS
