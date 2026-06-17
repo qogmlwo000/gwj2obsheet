@@ -25,7 +25,7 @@ export function renderHeadcountDashboard({ container, shift, getDate, onActualCh
 
   let state = blankState();
   let unsub = null;
-  let unsubPack = null, unsubPick = null, unsubNewTemp = null, unsubTC = null, unsubCaptain = null;
+  let unsubPack = null, unsubPick = null, unsubNewTemp = null, unsubTC = null, unsubCaptain = null, unsubPS = null;
   let saving = false;
   let saveTimer = null;
   let currentDate = getDate();
@@ -240,22 +240,23 @@ export function renderHeadcountDashboard({ container, shift, getDate, onActualCh
     subs.push(await subscribeOps(shift, "pick", currentDate, onChange));
     subs.push(await subscribeFlow(shift, "newTemp", currentDate, onChange));
     subs.push(await subscribeFlow(shift, "captain", currentDate, onChange));  // ★ FLOW>TEAM CAPTAIN
+    subs.push(await subscribeFlow(shift, "ps", currentDate, onChange));        // ★ FLOW>PS
     subs.push(await subscribeTCPosition(shift, currentDate, onChange));
     if (epoch !== loadEpoch) {
       subs.forEach((fn) => { if (typeof fn === "function") try { fn(); } catch {} });
       return;
     }
-    [unsubPack, unsubPick, unsubNewTemp, unsubCaptain, unsubTC] = subs;
+    [unsubPack, unsubPick, unsubNewTemp, unsubCaptain, unsubPS, unsubTC] = subs;
 
     // 초기 자동 동기화도 한 번 실행
     scheduleAutoSync(300);
   }
 
   function closeSourceSubs() {
-    [unsubPack, unsubPick, unsubNewTemp, unsubTC, unsubCaptain].forEach((fn) => {
+    [unsubPack, unsubPick, unsubNewTemp, unsubTC, unsubCaptain, unsubPS].forEach((fn) => {
       if (typeof fn === "function") { try { fn(); } catch {} }
     });
-    unsubPack = unsubPick = unsubNewTemp = unsubTC = unsubCaptain = null;
+    unsubPack = unsubPick = unsubNewTemp = unsubTC = unsubCaptain = unsubPS = null;
   }
 
   // 짧은 debounce — 여러 구독이 동시에 폭주해도 한 번만 계산
@@ -370,19 +371,21 @@ function escape(s) {
 // 자동 동기화 — 다른 탭/마스터에서 Actual 카운트 계산
 // ──────────────────────────────────────────────────────────
 export async function computeActualFromSources(shift, date) {
-  const [pack, pick, newTemp, captain, tcpos, permMaster, psMaster] = await Promise.all([
+  const [pack, pick, newTemp, captainFlow, psFlow, tcpos, permMaster, psMaster, captainMaster] = await Promise.all([
     listOps(shift, "pack", date),
     listOps(shift, "pick", date),
     listFlow(shift, "newTemp", date),
-    listFlow(shift, "captain", date),         // ★ FLOW > TEAM CAPTAIN 도 포함
+    listFlow(shift, "captain", date),         // ★ TEAM CAPTAIN 은 FLOW 로만 집계 → T/C
+    listFlow(shift, "ps", date),              // ★ PS 는 FLOW 로만 집계 → Perm
     getTCPosition(shift, date),
-    listMaster(shift, "perm"),
-    listMaster(shift, "ps"),                  // ★ PS 도 Perm(상용직)에 속하므로 함께 집계
+    listMaster(shift, "perm"),                // 계약직(Perm)
+    listMaster(shift, "ps"),                  // PS 마스터 (ops 제외용)
+    listMaster(shift, "captain"),             // 캡틴 마스터 (ops 제외용)
   ]);
 
   // T/C Actual = FLOW>captain + TC 포지션에 배정된 고유 쿠코드 (Union, dedupe)
   const tcKus = new Set();
-  captain.forEach((r) => {
+  captainFlow.forEach((r) => {
     const ku = String(r?.kucode || "").trim();
     if (ku) tcKus.add(ku);
   });
@@ -393,8 +396,10 @@ export async function computeActualFromSources(shift, date) {
     }
   }
 
-  // PS 도 Perm(상용직)에 속하므로 perm + ps 마스터를 합쳐서 Perm 으로 집계
-  const permSet = new Set([...permMaster, ...psMaster].map((r) => String(r.kucode || r.id)));
+  // 마스터 집합 — 계약직(Perm)만 ops 로 집계, 캡틴/PS 는 ops 에서 제외(FLOW 로만 집계)
+  const permSet    = new Set(permMaster.map((r) => String(r.kucode || r.id)));
+  const psSet      = new Set(psMaster.map((r) => String(r.kucode || r.id)));
+  const captainSet = new Set(captainMaster.map((r) => String(r.kucode || r.id)));
 
   // PACK + PICK 의 모든 쿠코드 (중복 제거)
   const opsKus = new Set();
@@ -404,21 +409,27 @@ export async function computeActualFromSources(shift, date) {
   });
 
   // 오늘 FLOW>신규단기 쿠코드 — 당일은 Newbie 로만 집계하고 Temp 중복집계에서 제외.
-  // (다음 날부터는 newTemp 에서 빠지고 DATA Temp 에 남아 자동으로 기존단기(Temp)로 전환됨)
   const newTempRows = newTemp.filter((r) => r.id);
   const newTempKus = new Set(
     newTempRows.map((r) => String(r.kucode || "").trim()).filter(Boolean)
   );
 
-  // Perm Actual = ops 의 쿠코드 중 perm/ps 마스터에 있는 것
-  // Temp Actual = 나머지 (오늘 신규단기는 제외 — Newbie 로만 집계)
+  // Perm Actual = ops 의 계약직(Perm) + FLOW>PS
+  // Temp Actual = ops 의 나머지 (캡틴/PS/신규단기 제외)
   let permActual = 0;
   let tempActual = 0;
   for (const ku of opsKus) {
-    if (newTempKus.has(ku)) continue;  // 오늘 신규단기 → Newbie 로만 집계
-    if (permSet.has(ku)) permActual++;
-    else tempActual++; // 기존 temp + DATA 미등록 모두 임시직으로 간주
+    if (captainSet.has(ku) || psSet.has(ku)) continue; // 캡틴/PS 는 ops 로 집계 안 함 (FLOW 전용)
+    if (newTempKus.has(ku)) continue;                  // 오늘 신규단기 → Newbie 로만
+    if (permSet.has(ku)) permActual++;                 // 계약직(Perm)
+    else tempActual++;                                 // 기존 단기 + DATA 미등록
   }
+
+  // PS Actual = FLOW>PS 고유 쿠코드 → Perm 에 합산
+  const psFlowKus = new Set(
+    psFlow.filter((r) => r.id).map((r) => String(r.kucode || "").trim()).filter(Boolean)
+  );
+  permActual += psFlowKus.size;
 
   // Newbie Actual = FLOW > newTemp 에 입력된 행 수 (id 가 있는 것만)
   const newbieActual = newTempRows.length;

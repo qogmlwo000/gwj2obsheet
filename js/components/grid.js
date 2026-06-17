@@ -35,6 +35,7 @@ export function createGrid(opts) {
     makeNewRow = () => ({}),
     emptyText = null,
     highlightText = "",
+    virtualize = false, // true: 가상 스크롤(보이는 창만 렌더). DATA 같은 대용량 그리드만.
   } = opts;
 
   let rows = initialRows.slice();
@@ -171,7 +172,7 @@ export function createGrid(opts) {
       if (start !== lastWin.start) render();
     });
   }
-  scroll.addEventListener("scroll", onGridScroll, { passive: true });
+  if (virtualize) scroll.addEventListener("scroll", onGridScroll, { passive: true });
 
   function totalCols() {
     return columns.length + (canDelete ? 1 : 0) + (selectable ? 1 : 0);
@@ -248,6 +249,7 @@ export function createGrid(opts) {
     // tbody 를 비우면 콘텐츠 높이가 0이 돼 브라우저가 scrollTop 을 0으로 리셋함 →
     // 재구성 후 원래 스크롤 위치를 복원 (가상 스크롤 필수).
     const keepScrollTop = scroll.scrollTop;
+    const vpRaw = scroll.clientHeight; // tbody 비우기 전 실제 뷰포트 높이 (비운 뒤엔 헤더 높이로 줄어듦)
 
     thead.querySelectorAll("th").forEach((th) => {
       const k = th.dataset.colKey;
@@ -278,11 +280,15 @@ export function createGrid(opts) {
         : "데이터가 없습니다. 행 추가 또는 엑셀에서 붙여넣기 (Ctrl+V).");
       tr.appendChild(td);
       tbody.appendChild(tr);
+    } else if (!virtualize) {
+      // 비가상: 전체 행 렌더 (PACK/PICK/FLOW/공유 — 기존 동작 그대로)
+      visible.forEach((row, i) => tbody.appendChild(renderRow(row, i)));
     } else {
       // ── 가상 스크롤: 뷰포트에 보이는 행 + overscan 만 렌더 ──
       const total = visible.length;
       const h = rowH || 34;
-      const vpH = scroll.clientHeight || 600;
+      // vpRaw 는 tbody 비우기 전 측정값. 너무 작으면(첫 페인트/빈 컨테이너) 창 높이로 폴백.
+      const vpH = vpRaw >= h * 2 ? vpRaw : (window.innerHeight || 600);
       // keepScrollTop 사용 — tbody.innerHTML="" 직후 scroll.scrollTop 은 0으로 리셋됐기 때문
       let start = Math.max(0, Math.floor(keepScrollTop / h) - OVERSCAN);
       const count = Math.ceil(vpH / h) + OVERSCAN * 2;
@@ -310,8 +316,8 @@ export function createGrid(opts) {
 
     restoreFocusState(focusState);
 
-    // 첫 페인트 후 실제 행 높이 1회 측정 — 추정치와 다르면 한 번만 다시 그림
-    if (!rowHMeasured) {
+    // 첫 페인트 후 실제 행 높이 1회 측정 — 추정치와 다르면 한 번만 다시 그림 (가상 스크롤 전용)
+    if (virtualize && !rowHMeasured) {
       const sample = tbody.querySelector("tr[data-vindex]");
       if (sample) {
         const measured = sample.offsetHeight;
@@ -580,7 +586,7 @@ export function createGrid(opts) {
       return;
     }
     if (vi < 0) return;
-    ensureIndexVisible(vi); // 창 밖이면 스크롤 + 재렌더
+    if (virtualize) ensureIndexVisible(vi); // 창 밖이면 스크롤 + 재렌더 (비가상은 전 행이 이미 DOM)
     const tr = tbody.querySelector(`tr[data-vindex="${vi}"]`);
     if (!tr) return;
     const inputs = tr.querySelectorAll(".cell-input");
@@ -649,10 +655,11 @@ export function createGrid(opts) {
     if (!text.includes("\t") && !text.includes("\n")) return;
     e.preventDefault();
 
-    // 1) 라인 파싱 — 끝 줄바꿈으로 인한 빈 줄 제거, 단 모든 셀이 비어도 살리진 않음
-    const lines = text.replace(/\r/g, "").split("\n")
-      .map((l) => l.replace(/\s+$/, ""))           // 트레일링 공백 제거
-      .filter((l, idx, arr) => l.length > 0 || (idx < arr.length - 1)); // 마지막만 빈 줄이면 버림
+    // 1) 라인 파싱 — 트레일링 공백 제거 후 앞/뒤 빈 줄 제거.
+    //    (엑셀에서 복사할 때 선행 빈 셀/줄바꿈이 포커스 행을 먹어 한 칸 밀리는 문제 방지. 가운데 빈 줄은 유지)
+    const lines = text.replace(/\r/g, "").split("\n").map((l) => l.replace(/\s+$/, ""));
+    while (lines.length && lines[0].trim() === "") lines.shift();
+    while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
     if (!lines.length) return;
     const matrix = lines.map((l) => l.split("\t"));
 
