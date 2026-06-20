@@ -33,19 +33,26 @@ export function confirmDialog({
     backdrop.appendChild(modal);
     root.appendChild(backdrop);
 
-    const onKey = (e) => { if (e.key === "Escape") close(false); };
+    let settled = false;
     const close = (v) => {
+      if (settled) return;       // 중복 호출 방지 (Enter 네이티브 클릭 + 키 핸들러 동시)
+      settled = true;
       document.removeEventListener("keydown", onKey);
       backdrop.remove();
       resolve(v);
+    };
+    // Enter = 확인(기본), Esc = 취소
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); close(false); }
+      else if (e.key === "Enter") { e.preventDefault(); close(true); }
     };
     document.addEventListener("keydown", onKey);
     modal.querySelector("[data-yes]").addEventListener("click", () => close(true));
     modal.querySelector("[data-no]").addEventListener("click", () => close(false));
     backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(false); });
 
-    // 위험 동작은 "취소"에 기본 포커스 — Enter 실수로 삭제되는 것 방지
-    setTimeout(() => modal.querySelector(danger ? "[data-no]" : "[data-yes]").focus(), 50);
+    // 확인 버튼에 기본 포커스 — Enter 로 바로 확정
+    setTimeout(() => modal.querySelector("[data-yes]").focus(), 50);
   });
 }
 

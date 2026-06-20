@@ -165,13 +165,12 @@ export function createGrid(opts) {
     if (!rowsToDelete.length) return;
     onBulkDelete(rowsToDelete);
   }
+  // Delete 키 → 선택된 행이 있으면 어느 입력창에서든 일괄 삭제.
+  // (글자 단위 삭제는 Backspace 로 가능하므로 입력 중에도 충돌 없음)
   function onDeleteKey(e) {
     if (e.key !== "Delete") return;
     if (!onBulkDelete || selected.size === 0) return;
     if (!wrap.isConnected) return; // 다른 탭으로 전환된 그리드는 무시
-    const ae = document.activeElement;
-    // 셀 입력칸에 포커스가 있으면(텍스트 편집 중) 일반 Delete 동작 유지
-    if (ae && ae.matches && ae.matches(".cell-input") && !ae.readOnly) return;
     e.preventDefault();
     triggerBulkDelete();
   }

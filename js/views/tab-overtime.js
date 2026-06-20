@@ -117,9 +117,16 @@ export async function renderOvertimeTab(root, ctx) {
   let grid = null;
   let unsub = null;
 
+  // 유효 행 = 쿠코드 있고 오류(미등록/중복)가 없는 행. 인원 합계·엑셀 내보내기 공용.
+  function validRows() {
+    if (!grid) return [];
+    return grid.getRows().filter((r) => {
+      const k = String(r.kucode || "").trim();
+      return k && !(r.__errors && r.__errors.kucode);
+    });
+  }
   function refreshCount() {
-    const n = grid ? grid.getRows().filter((r) => String(r.kucode || "").trim()).length : 0;
-    totalChip.textContent = `연장 ${n}명`;
+    totalChip.textContent = `연장 ${validRows().length}명`;
   }
 
   function makeBuffer(n) {
@@ -199,6 +206,12 @@ export async function renderOvertimeTab(root, ctx) {
 
       // 쿠코드 입력/변경 → DATA 조회 후 자동 기입
       if (key === "kucode") {
+        // 같은 일자에 이미 입력된 쿠코드면 중복 — HR 인원 중복 집계 방지
+        const dup = grid.getRows().find((x) => x !== row && String(x.kucode || "").trim() === ku);
+        if (dup) {
+          row.name = ""; row.process = ""; row.gubun = "";
+          return { error: "이미 입력된 쿠코드입니다." };
+        }
         const m = memberIndex.map.get(ku);
         if (!m) {
           row.name = ""; row.process = ""; row.gubun = "";
@@ -207,6 +220,11 @@ export async function renderOvertimeTab(root, ctx) {
         row.name = m.name || "";
         row.process = deriveProcess(m);
         row.gubun = deriveGubun(m);
+      } else {
+        // 쿠코드 외 컬럼(연장시간·사유 등) 편집 — 쿠코드가 유효(DATA 등록 + 중복 아님)할 때만 저장
+        const m = memberIndex.map.get(ku);
+        const dup = grid.getRows().find((x) => x !== row && String(x.kucode || "").trim() === ku);
+        if (!m || dup) return {}; // 오류 행은 부가 필드만 고쳐도 저장하지 않음
       }
       row.date = date();
       row.shiftLabel = shiftLbl;
@@ -256,11 +274,11 @@ export async function renderOvertimeTab(root, ctx) {
 
   addBtn.addEventListener("click", () => grid.addRow());
 
-  // ── 일괄 적용 ──
+  // ── 일괄 적용 ── (선택 행 우선, 없으면 전체 유효 행 — 오류/중복 행 제외)
   function targetRows() {
-    const sel = grid.getSelected().filter((r) => String(r.kucode || "").trim());
-    if (sel.length) return sel;
-    return grid.getRows().filter((r) => String(r.kucode || "").trim());
+    const valid = validRows();
+    const sel = grid.getSelected().filter((r) => valid.includes(r));
+    return sel.length ? sel : valid;
   }
 
   async function bulkSet(field, valueFor) {
@@ -294,9 +312,9 @@ export async function renderOvertimeTab(root, ctx) {
     bulkSet("reason", () => v);
   });
 
-  // ── Excel 내보내기 ──
+  // ── Excel 내보내기 ── (오류/중복 행 제외한 유효 인원만)
   exportBtn.addEventListener("click", async () => {
-    const rows = grid.getRows().filter((r) => String(r.kucode || "").trim());
+    const rows = validRows();
     if (!rows.length) { showToast("내보낼 연장 인원이 없습니다", "error"); return; }
     exportBtn.disabled = true;
     const old = exportBtn.innerHTML;
@@ -315,6 +333,8 @@ export async function renderOvertimeTab(root, ctx) {
 
   // ── 날짜 변경 ──
   dateInput.addEventListener("change", async () => {
+    // 이전 일자 구독을 먼저 해제 — 로드 중 옛 일자 콜백이 끼어드는 경합 방지
+    if (unsub) { try { unsub(); } catch {} unsub = null; }
     await load();
     await resubscribe();
   });

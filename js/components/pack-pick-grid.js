@@ -856,10 +856,12 @@ export function renderPackPickStrip(opts) {
       await logAudit({ shift, scope: `ops:${kind}`, target: r.kucode, action: "delete", by: getSession()?.nickname, before: sanitize(r) });
     }
     showToast(`${target.length}개 삭제`, "success");
-    // allRows 정리 (다음 onSnapshot 도 이걸 확정)
+    // allRows + 그리드에서 즉시 제거 (LocalStorage 전용 모드에선 같은 탭 onSnapshot 이 안 오므로 직접 제거)
     target.forEach((r) => {
       const idx = allRows.findIndex((x) => x === r || x.id === r.id);
       if (idx >= 0) allRows.splice(idx, 1);
+      const card = findCardForRow(r);
+      if (card && r.id) { try { card.gridApi.removeRow(r.id); } catch {} }
     });
     cards.forEach((c) => { try { c.gridApi.clearSelection(); } catch {} });
     markAllDuplicates(allRows, cards);
