@@ -15,7 +15,7 @@ import { buildMemberLabel, buildSkillChipsLabel, autofillFromMaster } from "./me
 import { openMemberCard } from "./member-card.js";
 import { confirmDialog } from "./dialog.js";
 import { openAuditPanel } from "./audit-panel.js";
-import { listOps, upsertOps, deleteOps, subscribeOps, logAudit, upsertShare, deleteShare, listShare, batchUpsertOps, listOvertime, subscribeOvertime } from "../db.js";
+import { listOps, upsertOps, deleteOps, subscribeOps, logAudit, upsertShare, deleteShare, listShare, batchUpsertOps, listOvertime, subscribeOvertime, getHtpTable } from "../db.js";
 import { showToast } from "../toast.js";
 import { getSession } from "../auth.js";
 import { markEditing, unmarkEditing, subscribeEditing } from "./editing-presence.js";
@@ -131,6 +131,22 @@ export function renderPackPickStrip(opts) {
 
   side.appendChild(makeSep());
 
+  // ── HTP 정렬 (RAW 집계 기준) ──
+  const htpSortBtn = document.createElement("button");
+  htpSortBtn.className = "btn ghost pp-side-btn";
+  htpSortBtn.textContent = kind === "pick" ? "📊 픽 HTP 높은순" : "📊 팩 HTP 높은순";
+  htpSortBtn.title = "RAW HTP 기준으로 각 카드 안 인원을 높은 순서로 정렬";
+  htpSortBtn.addEventListener("click", () => sortByHtp());
+  side.appendChild(htpSortBtn);
+  const htpRestoreBtn = document.createElement("button");
+  htpRestoreBtn.className = "btn ghost pp-side-btn";
+  htpRestoreBtn.textContent = "↩ 기본 순서";
+  htpRestoreBtn.title = "원래(입력) 순서로 되돌리기";
+  htpRestoreBtn.addEventListener("click", () => { buildCards(); refreshTotals(); });
+  side.appendChild(htpRestoreBtn);
+
+  side.appendChild(makeSep());
+
   groups.forEach((g) => {
     if (g.subs) {
       const heading = document.createElement("div");
@@ -173,6 +189,15 @@ export function renderPackPickStrip(opts) {
   let unsubOps = null;
   let unsubOvertime = null;
   let searchText = "";
+  let htpTable = {}; // 쿠코드 → { pq, ph, kq, kh } (RAW 집계). HTP 정렬용.
+
+  // 한 사람의 이 공정(kind) HTP — pick: kq/kh, pack: pq/ph. 데이터 없으면 null.
+  function htpOf(kucode) {
+    const e = htpTable[String(kucode || "").trim()];
+    if (!e) return null;
+    if (kind === "pick") return e.kh > 0 ? e.kq / e.kh : null;
+    return e.ph > 0 ? e.pq / e.ph : null;
+  }
   // 연장 희망자 쿠코드 집합 — 같은 일자 연장 조사 탭과 연동. 성함 배경을 주황색으로(최우선) 표시.
   const overtimeSet = new Set();
   function setOvertimeRows(rows) {
@@ -185,12 +210,14 @@ export function renderPackPickStrip(opts) {
 
   // ── 초기 로드 + 실시간 구독 ──
   async function initialLoad() {
-    const [ops, ot] = await Promise.all([
+    const [ops, ot, htp] = await Promise.all([
       listOps(shift, kind, date),
       listOvertime(shift, date),
+      getHtpTable().catch(() => ({ table: {} })),
     ]);
     allRows = ops;
     setOvertimeRows(ot);
+    htpTable = (htp && htp.table) || {};
     buildCards();
     refreshTotals();
   }
@@ -750,6 +777,28 @@ export function renderPackPickStrip(opts) {
       total += n;
     });
     onCountChange({ total });
+  }
+
+  // ── HTP 높은순 정렬 — 각 카드 안 인원을 RAW HTP 기준 내림차순으로 ──
+  function sortByHtp() {
+    if (!htpTable || Object.keys(htpTable).length === 0) {
+      showToast("HTP 데이터가 없습니다 — RAW 탭에서 업로드해주세요.", "error");
+      return;
+    }
+    cards.forEach((c) => {
+      c.gridApi.sortRows((a, b) => {
+        const ea = !String(a.kucode || "").trim();
+        const eb = !String(b.kucode || "").trim();
+        if (ea && eb) return 0;
+        if (ea) return 1;   // 빈 행은 맨 뒤
+        if (eb) return -1;
+        const ha = htpOf(a.kucode), hb = htpOf(b.kucode);
+        const va = ha == null ? -1 : ha;  // HTP 없는 사람은 뒤로(빈 행 앞)
+        const vb = hb == null ? -1 : hb;
+        return vb - va;     // 높은 순
+      });
+    });
+    showToast(kind === "pick" ? "픽 HTP 높은순 정렬" : "팩 HTP 높은순 정렬", "success");
   }
 
   // 빈 행이 부족하면 끝에만 보충 — 기존 순서 절대 변경하지 않음

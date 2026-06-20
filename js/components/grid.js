@@ -925,6 +925,14 @@ export function createGrid(opts) {
     setFilter(text) { filterText = text || ""; scroll.scrollTop = 0; render(); },
     setHighlight(text) { hlText = text || ""; render(); },
     refresh() { render(); },
+    // 외부 기준(예: HTP)으로 행 정렬 — 컬럼 정렬 상태는 해제하고 배열 순서를 직접 바꿈
+    sortRows(comparator) {
+      if (typeof comparator !== "function") return;
+      sortState = { key: null, dir: 0 };
+      rows.sort(comparator);
+      scroll.scrollTop = 0;
+      render();
+    },
 
     // ── 실시간 협업: 한 행만 patch (포커스/미커밋 보존) ──
     patchRow(id, partial) {
