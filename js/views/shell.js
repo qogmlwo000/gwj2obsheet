@@ -18,6 +18,7 @@ import { setSnop, getYesterdaySnop, logAudit, subscribeSnop, getStorageMode, isF
 import { isFirebaseConfigured } from "../firebase-config.js";
 import { showToast } from "../toast.js";
 import { businessToday } from "../biz-date.js";
+import { initShortcutsHelp, openShortcutsHelp } from "../components/shortcuts-help.js";
 
 const TABS = [
   { id: "raw",       label: "RAW" },
@@ -210,6 +211,15 @@ export function renderShell(root, onLogout) {
     });
     actions.appendChild(settings);
   }
+
+  // 단축키 안내 (? 키 또는 클릭)
+  initShortcutsHelp();
+  const helpBtn = document.createElement("button");
+  helpBtn.className = "icon-btn";
+  helpBtn.title = "단축키 안내 (?)";
+  helpBtn.textContent = "⌨";
+  helpBtn.addEventListener("click", () => openShortcutsHelp());
+  actions.appendChild(helpBtn);
 
   const themeBtn = makeInlineThemeToggle();
   actions.appendChild(themeBtn);

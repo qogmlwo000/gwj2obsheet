@@ -1015,6 +1015,30 @@ a:hover { text-decoration: underline; }
 }
 .modal-header h3 { margin: 0; font-size: 16px; }
 .modal-body { padding: 20px 22px; max-height: 60vh; overflow: auto; }
+
+/* 단축키 안내 모달 */
+.shortcuts-modal { max-width: 580px; width: 100%; }
+.shortcuts-body { display: flex; flex-direction: column; gap: 18px; }
+.sc-group-title {
+  font-size: 12px; font-weight: 800; color: var(--accent);
+  text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px;
+}
+.sc-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+}
+.sc-row:last-child { border-bottom: none; }
+.sc-keys { display: flex; align-items: center; gap: 5px; flex: 0 0 158px; flex-wrap: wrap; }
+.sc-key {
+  display: inline-block; padding: 3px 9px; min-width: 26px; text-align: center;
+  background: var(--surface-2); border: 1px solid var(--border-strong);
+  border-bottom-width: 2px; border-radius: 7px;
+  font-size: 12px; font-weight: 700; color: var(--text);
+  font-family: inherit; white-space: nowrap;
+}
+.sc-plus { color: var(--text-muted); font-size: 11px; font-weight: 700; }
+.sc-desc { flex: 1; font-size: 13px; color: var(--text); line-height: 1.5; }
+
 .modal-section { margin-bottom: 22px; }
 .modal-section:last-child { margin-bottom: 0; }
 .modal-section h4 {
