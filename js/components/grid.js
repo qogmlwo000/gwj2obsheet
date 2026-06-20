@@ -71,7 +71,7 @@ export function createGrid(opts) {
     <span class="sel-count">0 행 선택됨</span>
     <button class="btn primary sel-copy-ku" title="쿠코드만 복사 (Ctrl+C)">📋 쿠코드</button>
     <button class="btn ghost sel-copy-kn" title="쿠코드 | 성함 복사">📋 쿠코드 | 성함</button>
-    ${onBulkDelete ? `<button class="btn ghost danger sel-delete" title="선택 행 삭제 (Delete)">🗑 삭제</button>` : ""}
+    ${(onBulkDelete || canDelete) ? `<button class="btn ghost danger sel-delete" title="선택 행 삭제 (Delete)">🗑 삭제</button>` : ""}
     <button class="btn ghost sel-clear">해제</button>
   `;
   wrap.appendChild(selBar);
@@ -156,20 +156,52 @@ export function createGrid(opts) {
   }
   document.addEventListener("keydown", onCopyKey);
 
-  // ── Delete 키 → 선택 행 일괄 삭제 (편집 입력 중에는 무시) ──
+  // ── 선택 행 일괄 삭제 ──
+  // onBulkDelete 가 있으면 그걸 우선 사용(탭별 커스텀 정리 로직).
+  // 없으면 canDelete + onDelete 로 그리드가 직접 일괄 삭제(확인은 한 번만).
   function triggerBulkDelete() {
-    if (!onBulkDelete) return;
     if (selected.size === 0) return;
     const visible = visibleRows();
     const rowsToDelete = visible.filter((r) => selected.has(r));
     if (!rowsToDelete.length) return;
-    onBulkDelete(rowsToDelete);
+    if (onBulkDelete) { onBulkDelete(rowsToDelete); return; }
+    if (canDelete) { genericBulkDelete(rowsToDelete); }
+  }
+  function rowHasData(r) {
+    if (!r) return false;
+    if (r[rowIdKey]) return true;
+    return columns.some((c) => {
+      const v = r[c.key];
+      return Array.isArray(v) ? v.length > 0 : (v != null && v !== "");
+    });
+  }
+  async function genericBulkDelete(rowsToDelete) {
+    // 빈 버퍼 행은 제외 — 실제 데이터가 있는 행만 삭제
+    const real = rowsToDelete.filter(rowHasData);
+    if (!real.length) return;
+    const ok = await confirmDialog({
+      title: "삭제 확인", danger: true,
+      message: `선택한 ${real.length}개 행을 삭제할까요?`,
+      yes: "삭제", no: "취소",
+    });
+    if (!ok) return;
+    for (const row of real) {
+      try {
+        const result = await onDelete(row);
+        if (result === false) continue; // onDelete 가 취소 신호를 주면 건너뜀
+      } catch (e) { console.warn("일괄 삭제 중 한 행 실패", e); }
+      const idx = rows.indexOf(row);
+      if (idx >= 0) rows.splice(idx, 1);
+      selected.delete(row);
+    }
+    render();
   }
   // Delete 키 → 선택된 행이 있으면 어느 입력창에서든 일괄 삭제.
   // (글자 단위 삭제는 Backspace 로 가능하므로 입력 중에도 충돌 없음)
   function onDeleteKey(e) {
     if (e.key !== "Delete") return;
-    if (!onBulkDelete || selected.size === 0) return;
+    if (selected.size === 0) return;
+    if (!onBulkDelete && !canDelete) return; // 삭제 불가 그리드는 무시
     if (!wrap.isConnected) return; // 다른 탭으로 전환된 그리드는 무시
     e.preventDefault();
     triggerBulkDelete();
