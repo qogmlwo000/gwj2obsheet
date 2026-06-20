@@ -6,6 +6,7 @@ import { renderHeadcountChart } from "../components/headcount-chart.js";
 import { confirmDialog } from "../components/dialog.js";
 import { showToast } from "../toast.js";
 import { captureElement, copyBlobToClipboard, downloadBlob } from "../capture.js";
+import { businessToday } from "../biz-date.js";
 
 export async function renderHeadcountTab(root, ctx) {
   root.innerHTML = "";
@@ -29,14 +30,14 @@ export async function renderHeadcountTab(root, ctx) {
   const dateInput = document.createElement("input");
   dateInput.type = "date";
   dateInput.className = "date-input";
-  dateInput.value = todayStr();
+  dateInput.value = businessToday(shift);
   head.appendChild(dateInput);
 
   const todayBtn = document.createElement("button");
   todayBtn.className = "btn ghost";
   todayBtn.textContent = "📅 오늘";
   todayBtn.addEventListener("click", () => {
-    dateInput.value = todayStr();
+    dateInput.value = businessToday(shift);
     dateInput.dispatchEvent(new Event("change"));
   });
   head.appendChild(todayBtn);

@@ -15,7 +15,7 @@ import { buildMemberLabel, buildSkillChipsLabel, autofillFromMaster } from "./me
 import { openMemberCard } from "./member-card.js";
 import { confirmDialog } from "./dialog.js";
 import { openAuditPanel } from "./audit-panel.js";
-import { listOps, upsertOps, deleteOps, subscribeOps, logAudit, upsertShare, deleteShare, listShare, batchUpsertOps } from "../db.js";
+import { listOps, upsertOps, deleteOps, subscribeOps, logAudit, upsertShare, deleteShare, listShare, batchUpsertOps, listOvertime, subscribeOvertime } from "../db.js";
 import { showToast } from "../toast.js";
 import { getSession } from "../auth.js";
 import { markEditing, unmarkEditing, subscribeEditing } from "./editing-presence.js";
@@ -171,11 +171,26 @@ export function renderPackPickStrip(opts) {
   const colEls = [];      // 서브(싱귤/멀티 등)를 수직으로 묶는 컬럼 요소들
   let allRows = [];       // 모든 카드의 데이터 합 (Firestore + LS 머지된 결과)
   let unsubOps = null;
+  let unsubOvertime = null;
   let searchText = "";
+  // 연장 희망자 쿠코드 집합 — 같은 일자 연장 조사 탭과 연동. 성함 배경을 주황색으로(최우선) 표시.
+  const overtimeSet = new Set();
+  function setOvertimeRows(rows) {
+    overtimeSet.clear();
+    (rows || []).forEach((r) => {
+      const ku = String(r.kucode || "").trim();
+      if (ku) overtimeSet.add(ku);
+    });
+  }
 
   // ── 초기 로드 + 실시간 구독 ──
   async function initialLoad() {
-    allRows = await listOps(shift, kind, date);
+    const [ops, ot] = await Promise.all([
+      listOps(shift, kind, date),
+      listOvertime(shift, date),
+    ]);
+    allRows = ops;
+    setOvertimeRows(ot);
     buildCards();
     refreshTotals();
   }
@@ -184,6 +199,11 @@ export function renderPackPickStrip(opts) {
     await initialLoad();
     unsubOps = await subscribeOps(shift, kind, date, (rows) => {
       applyRemoteUpdate(rows);
+    });
+    // 연장 조사 연동 — 같은 일자 연장 희망자가 바뀌면 성함 색 즉시 갱신
+    unsubOvertime = await subscribeOvertime(shift, date, (rows) => {
+      setOvertimeRows(rows);
+      cards.forEach((c) => c.gridApi.refresh());
     });
   })();
 
@@ -351,11 +371,12 @@ export function renderPackPickStrip(opts) {
 
     const grid = createGrid({
       container: body,
-      columns: columnDef(memberIndex),
+      columns: columnDef(memberIndex, overtimeSet),
       rows: initialPaddedRows,
       canDelete: true,
       selectable: true,
-      copyKeys: ["kucode", "name", "team"],
+      copyKeys: ["kucode"],
+      onBulkDelete: (rows) => bulkDeleteRows(rows),
       makeNewRow: () => ({ id: "" }),
       emptyText: "쿠코드를 입력하거나 엑셀에서 붙여넣으세요.",
       highlightText: searchText,
@@ -570,38 +591,13 @@ export function renderPackPickStrip(opts) {
             }))),
           },
           { divider: true },
-          { label: "복사 (쿠코드 | 성함)", icon: "📋", onClick: () => copyCols(filteredSel.length ? filteredSel : [row], ["kucode", "name"]) },
           { label: "복사 (쿠코드만)", icon: "📋", onClick: () => copyCols(filteredSel.length ? filteredSel : [row], ["kucode"]) },
+          { label: "복사 (쿠코드 | 성함)", icon: "📋", onClick: () => copyCols(filteredSel.length ? filteredSel : [row], ["kucode", "name"]) },
           { label: "수정 이력", icon: "📜", onClick: () => openAuditPanel({ scope: `ops:${kind}`, target: row.kucode, shift, title: `${row.kucode} 수정 이력` }) },
           { divider: true },
           {
-            label: "선택 행 삭제", icon: "🗑", danger: true,
-            onClick: async () => {
-              const ok = await confirmDialog({
-                title: "삭제 확인", danger: true,
-                message: `선택한 ${(filteredSel.length || 1)}개 행을 삭제할까요?`,
-                yes: "삭제", no: "취소",
-              });
-              if (!ok) return;
-              const target = filteredSel.length ? filteredSel : [row];
-              for (const r of target) {
-                if (r.id) {
-                  await deleteOps(shift, kind, r.id);
-                  if (r.kucode) { try { await deleteShareByKucode(shift, kind, r.kucode); } catch {} }
-                }
-                await logAudit({ shift, scope: `ops:${kind}`, target: r.kucode, action: "delete", by: getSession()?.nickname, before: sanitize(r) });
-              }
-              showToast(`${target.length}개 삭제`, "success");
-              // allRows 정리 (다음 onSnapshot 도 이걸 확정)
-              target.forEach((r) => {
-                const idx = allRows.findIndex((x) => x === r || x.id === r.id);
-                if (idx >= 0) allRows.splice(idx, 1);
-              });
-              markAllDuplicates(allRows, cards);
-              cards.forEach((c) => c.gridApi.refresh());
-              refreshTotals();
-              ensureBufferRows();
-            },
+            label: "선택 행 삭제 (Delete)", icon: "🗑", danger: true,
+            onClick: () => bulkDeleteRows(filteredSel.length ? filteredSel : [row]),
           },
         ];
         openContextMenu(e.clientX, e.clientY, menuItems);
@@ -842,6 +838,36 @@ export function renderPackPickStrip(opts) {
     for (const r of targets) await deleteShare(shiftV, kindV, r.id);
   }
 
+  // 선택 행 일괄 삭제 — 컨텍스트 메뉴 + Delete 키 + 선택바 🗑 버튼 공용.
+  async function bulkDeleteRows(rows) {
+    const target = (rows || []).filter((r) => r.kucode);
+    if (!target.length) return;
+    const ok = await confirmDialog({
+      title: "삭제 확인", danger: true,
+      message: `선택한 ${target.length}개 행을 삭제할까요?`,
+      yes: "삭제", no: "취소",
+    });
+    if (!ok) return;
+    for (const r of target) {
+      if (r.id) {
+        try { await deleteOps(shift, kind, r.id); } catch {}
+        if (r.kucode) { try { await deleteShareByKucode(shift, kind, r.kucode); } catch {} }
+      }
+      await logAudit({ shift, scope: `ops:${kind}`, target: r.kucode, action: "delete", by: getSession()?.nickname, before: sanitize(r) });
+    }
+    showToast(`${target.length}개 삭제`, "success");
+    // allRows 정리 (다음 onSnapshot 도 이걸 확정)
+    target.forEach((r) => {
+      const idx = allRows.findIndex((x) => x === r || x.id === r.id);
+      if (idx >= 0) allRows.splice(idx, 1);
+    });
+    cards.forEach((c) => { try { c.gridApi.clearSelection(); } catch {} });
+    markAllDuplicates(allRows, cards);
+    cards.forEach((c) => c.gridApi.refresh());
+    refreshTotals();
+    ensureBufferRows();
+  }
+
   // 지정한 컬럼만 TSV 로 복사 (엑셀 붙여넣기 시 각 컬럼이 A,B 셀로 들어감)
   function copyCols(rows, keys) {
     const real = rows.filter((r) => r.kucode);
@@ -861,6 +887,7 @@ export function renderPackPickStrip(opts) {
     reload: initialLoad,
     destroy() {
       if (unsubOps) { try { unsubOps(); } catch {} unsubOps = null; }
+      if (unsubOvertime) { try { unsubOvertime(); } catch {} unsubOvertime = null; }
       cards.forEach((c) => {
         if (c.unsubEditing) try { c.unsubEditing(); } catch {}
         try { c.gridApi.destroy(); } catch {}
@@ -911,12 +938,16 @@ function markAllDuplicates(allRows, cards) {
   markDuplicates(all);
 }
 
-function columnDef(memberIndex) {
+function columnDef(memberIndex, overtimeSet) {
   return [
-    { key: "kucode", label: "쿠코드", type: "text",  width: "84px" },
+    { key: "kucode", label: "쿠코드", type: "text",  width: "84px", scanAdvance: true },
     {
       key: "name", label: "성함", type: "label", width: "150px",
-      getLabel: (row) => buildMemberLabel(memberIndex && memberIndex.map.get(String(row.kucode)), row.name),
+      getLabel: (row) => buildMemberLabel(
+        memberIndex && memberIndex.map.get(String(row.kucode)),
+        row.name,
+        { overtime: !!overtimeSet && overtimeSet.has(String(row.kucode)) }
+      ),
     },
     { key: "team", label: "조", type: "text", readonly: true, width: "52px" },
     {

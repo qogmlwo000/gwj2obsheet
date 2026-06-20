@@ -7,6 +7,7 @@ import { listMaster, listFlow, upsertFlow, deleteFlow, upsertMaster, subscribeFl
 import { getSession } from "../auth.js";
 import { showToast } from "../toast.js";
 import { confirmDialog } from "../components/dialog.js";
+import { businessToday } from "../biz-date.js";
 
 const MIN_ROWS = 15; // 폼처럼 보이도록 기본으로 채우는 행 수
 
@@ -32,14 +33,14 @@ export async function renderFlowTab(root, ctx) {
   const dateInput = document.createElement("input");
   dateInput.type = "date";
   dateInput.className = "date-input";
-  dateInput.value = todayStr();
+  dateInput.value = businessToday(shift);
   top.appendChild(dateInput);
 
   const todayBtn = document.createElement("button");
   todayBtn.className = "btn ghost";
   todayBtn.textContent = "📅 오늘";
   todayBtn.addEventListener("click", () => {
-    dateInput.value = todayStr();
+    dateInput.value = businessToday(shift);
     dateInput.dispatchEvent(new Event("change"));
   });
   top.appendChild(todayBtn);

@@ -56,8 +56,19 @@ export function autofillFromMaster(index, kucode) {
 /**
  * 라벨 빌더. PACK/PICK/FLOW/공유 어디에서나 같은 결과를 보장합니다.
  * 반환: { html, classes: [], plainText }
+ *
+ * opts.overtime === true 이면 — 연장 희망자. 역할/하이스킬러 색보다 "최우선" 으로
+ * 성함 배경을 주황색(lbl-overtime)으로 덮어씁니다. 표시 텍스트는 역할 규칙 그대로 유지.
  */
-export function buildMemberLabel(member, fallbackName = "") {
+export function buildMemberLabel(member, fallbackName = "", opts = {}) {
+  const base = buildMemberLabelBase(member, fallbackName);
+  if (opts && opts.overtime) {
+    return { html: base.html, classes: ["lbl-overtime"], plainText: base.plainText };
+  }
+  return base;
+}
+
+function buildMemberLabelBase(member, fallbackName = "") {
   if (!member) {
     const name = String(fallbackName || "").trim();
     if (!name) return { html: "", classes: [], plainText: "" };

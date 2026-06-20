@@ -312,3 +312,106 @@ export async function parseMasterFile(file, role) {
     invalidTokens,
   };
 }
+
+// =================================================================
+// 연장 조사 — HR 메일용 Excel (배경색). ExcelJS 우선, 실패 시 SheetJS 폴백.
+// =================================================================
+
+let _exceljsPromise = null;
+function loadExcelJS() {
+  if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if (_exceljsPromise) return _exceljsPromise;
+  _exceljsPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
+    s.async = true;
+    s.onload = () => resolve(window.ExcelJS);
+    s.onerror = () => { _exceljsPromise = null; reject(new Error("ExcelJS 로드 실패 (네트워크 확인)")); };
+    document.head.appendChild(s);
+  });
+  return _exceljsPromise;
+}
+
+const OT_HEADERS = ["NO", "날짜", "공정", "구분", "Shift", "쿠코드", "성명", "연장시간", "사유"];
+const OT_WIDTHS  = [6, 13, 12, 10, 9, 14, 14, 18, 32];
+
+function downloadArrayBuffer(buf, filename, mime) {
+  const blob = new Blob([buf], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+export async function exportOvertimeXlsx({ shift, shiftLabel, date, rows }) {
+  const sLabel = shiftLabel || (shift === "day" ? "DAY" : "SWING");
+  const fname = `연장조사_${sLabel}_${date}.xlsx`;
+  const body = (rows || []).map((r, i) => [
+    i + 1, r.date || date, r.process || "", r.gubun || "",
+    r.shiftLabel || sLabel, r.kucode || "", r.name || "",
+    r.otTime || "", r.reason || "",
+  ]);
+
+  // ── ExcelJS (배경색 지원) ──
+  try {
+    const ExcelJS = await loadExcelJS();
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("연장조사", { views: [{ state: "frozen", ySplit: 2 }] });
+
+    ws.mergeCells(1, 1, 1, OT_HEADERS.length);
+    const title = ws.getCell(1, 1);
+    title.value = `연장 근무 조사   ·   ${date} (${sLabel})   ·   총 ${body.length}명`;
+    title.font = { bold: true, size: 14, color: { argb: "FF0A2540" } };
+    title.alignment = { vertical: "middle", horizontal: "left" };
+    ws.getRow(1).height = 28;
+
+    const thin = (argb = "FFB9C6D6") => ({
+      top: { style: "thin", color: { argb } },
+      left: { style: "thin", color: { argb } },
+      bottom: { style: "thin", color: { argb } },
+      right: { style: "thin", color: { argb } },
+    });
+
+    const headerRow = ws.addRow(OT_HEADERS);
+    headerRow.height = 22;
+    headerRow.eachCell((c) => {
+      c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
+      c.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+      c.alignment = { vertical: "middle", horizontal: "center" };
+      c.border = thin("FF1D4ED8");
+    });
+
+    body.forEach((vals, i) => {
+      const row = ws.addRow(vals);
+      const bg = i % 2 ? "FFEAF2FF" : "FFFFFFFF";
+      row.eachCell((c, col) => {
+        c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } };
+        c.border = thin();
+        c.alignment = { vertical: "middle", horizontal: col === 9 ? "left" : "center" };
+      });
+    });
+
+    OT_WIDTHS.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+
+    const buf = await wb.xlsx.writeBuffer();
+    downloadArrayBuffer(buf, fname, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    return;
+  } catch (e) {
+    console.warn("ExcelJS 내보내기 실패 — SheetJS 폴백:", e?.message || e);
+  }
+
+  // ── 폴백: SheetJS (배경색은 없지만 데이터/구조 동일) ──
+  const XLSX = await loadXLSX();
+  const aoa = [
+    [`연장 근무 조사 · ${date} (${sLabel}) · 총 ${body.length}명`],
+    OT_HEADERS,
+    ...body,
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = OT_WIDTHS.map((w) => ({ wch: w }));
+  ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: OT_HEADERS.length - 1 } }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "연장조사");
+  XLSX.writeFile(wb, fname);
+}

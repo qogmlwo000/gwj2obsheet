@@ -291,7 +291,7 @@ async function flushPending(scope) {
 async function flushAllPending() {
   if (!FB_CONFIGURED || !useFirebase) return;
   const prefix = LS_PREFIX + "pending:";
-  const colMap = { master: "masters", flow: "flows", ops: "ops", share: "share" };
+  const colMap = { master: "masters", flow: "flows", ops: "ops", share: "share", overtime: "overtime" };
   const scopes = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
@@ -314,11 +314,13 @@ const masterKey = (shift, role) => `${LS_PREFIX}master:${shift}:${role}`;
 const flowKey   = (shift, type) => `${LS_PREFIX}flow:${shift}:${type}`;
 const opsKey    = (shift, kind) => `${LS_PREFIX}ops:${shift}:${kind}`;
 const shareKey  = (shift, kind) => `${LS_PREFIX}share:${shift}:${kind}`;
+const overtimeKey = (shift)     => `${LS_PREFIX}overtime:${shift}:rows`;
 
 const masterScope = (shift, role) => ({ lsKey: masterKey(shift, role), segs: ["masters", shift, role] });
 const flowScope   = (shift, type) => ({ lsKey: flowKey(shift, type),   segs: ["flows", shift, type] });
 const opsScope    = (shift, kind) => ({ lsKey: opsKey(shift, kind),    segs: ["ops", shift, kind] });
 const shareScope  = (shift, kind) => ({ lsKey: shareKey(shift, kind),  segs: ["share", shift, kind] });
+const overtimeScope = (shift)     => ({ lsKey: overtimeKey(shift),      segs: ["overtime", shift, "rows"] });
 
 // =================================================================
 // Master CRUD
@@ -617,6 +619,121 @@ export async function deleteOps(shift, kind, id) {
       clearPending(scope.lsKey, id);
     },
     () => { lsDel(); markPendingDelete(scope.lsKey, id); }
+  );
+}
+
+// =================================================================
+// 연장(OT) 조사 — 일자별. ops 와 동일한 동기화 패턴 (kind 고정).
+// =================================================================
+
+export async function listOvertime(shift, date) {
+  const scope = overtimeScope(shift);
+  const ls = (readLS(scope.lsKey) || []).filter((x) => x.date === date);
+  const { rows: fbRows, auth } = await safeRead(async () => {
+    const { db, fs } = await ensureFirebase();
+    const ref = fs.collection(db, ...scope.segs);
+    const q = fs.query(ref, fs.where("date", "==", date));
+    const snap = await fs.getDocs(q);
+    return snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+  });
+  const merged = mergeRows(fbRows || [], ls, readPending(scope.lsKey), auth);
+  if (auth) { reconcileMirror(scope.lsKey, merged, (r) => r.date === date); scheduleFlush(scope); }
+  return merged;
+}
+
+export async function upsertOvertime(shift, id, data) {
+  const docId = id || crypto.randomUUID();
+  const scope = overtimeScope(shift);
+  const lsWrite = () => {
+    const list = readLS(scope.lsKey) || [];
+    const idx = list.findIndex((x) => x.id === docId);
+    const row = { id: docId, ...data, updatedAt: Date.now() };
+    if (idx >= 0) list[idx] = { ...list[idx], ...row };
+    else list.push(row);
+    writeLS(scope.lsKey, list);
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await withTimeout(fs.setDoc(fs.doc(db, ...scope.segs, docId), { ...data, updatedAt: Date.now() }, { merge: true }));
+      lsWrite();
+      clearPending(scope.lsKey, docId);
+      return docId;
+    },
+    () => { lsWrite(); markPendingUpsert(scope.lsKey, docId); return docId; }
+  );
+}
+
+export async function deleteOvertime(shift, id) {
+  const scope = overtimeScope(shift);
+  const lsDel = () => {
+    const list = readLS(scope.lsKey) || [];
+    writeLS(scope.lsKey, list.filter((x) => x.id !== id));
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      await withTimeout(fs.deleteDoc(fs.doc(db, ...scope.segs, id)));
+      lsDel();
+      clearPending(scope.lsKey, id);
+    },
+    () => { lsDel(); markPendingDelete(scope.lsKey, id); }
+  );
+}
+
+export async function batchUpsertOvertime(shift, rows) {
+  if (!rows || !rows.length) return { ok: 0, batches: 0, ids: [] };
+  const scope = overtimeScope(shift);
+  const lsWrite = () => {
+    const list = readLS(scope.lsKey) || [];
+    const byId = new Map(list.map((r) => [r.id, r]));
+    for (const r of rows) {
+      const id = r.id || crypto.randomUUID();
+      r.id = id;
+      const existing = byId.get(id) || {};
+      byId.set(id, { ...existing, ...r, id, updatedAt: Date.now() });
+    }
+    writeLS(scope.lsKey, [...byId.values()]);
+  };
+  return safe(
+    async () => {
+      const { db, fs } = await ensureFirebase();
+      const CHUNK = 450;
+      let total = 0, batches = 0;
+      const assignedIds = [];
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const chunk = rows.slice(i, i + CHUNK);
+        const batch = fs.writeBatch(db);
+        for (const r of chunk) {
+          const id = r.id || crypto.randomUUID();
+          r.id = id;
+          assignedIds.push(id);
+          batch.set(fs.doc(db, ...scope.segs, id), { ...stripLocal(r), updatedAt: Date.now() }, { merge: true });
+          total++;
+        }
+        await withTimeout(batch.commit(), 15000);
+        batches++;
+      }
+      lsWrite();
+      assignedIds.forEach((id) => clearPending(scope.lsKey, id));
+      return { ok: total, batches, ids: assignedIds };
+    },
+    () => {
+      lsWrite();
+      rows.forEach((r) => markPendingUpsert(scope.lsKey, r.id));
+      return { ok: rows.length, batches: 1, ids: rows.map((r) => r.id) };
+    }
+  );
+}
+
+export async function subscribeOvertime(shift, date, callback) {
+  const scope = overtimeScope(shift);
+  return subscribeList(
+    scope,
+    (ls) => ls.filter((x) => x.date === date),
+    (r) => r.date === date,
+    callback,
+    (db, fs) => fs.query(fs.collection(db, ...scope.segs), fs.where("date", "==", date))
   );
 }
 

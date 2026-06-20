@@ -4,6 +4,7 @@ import { renderPackPickStrip, PICK_GROUPS_DEF } from "../components/pack-pick-gr
 import { buildMemberIndex } from "../components/member-label.js";
 import { renderWSTable } from "./tab-ws.js";
 import { makeWsCard } from "./tab-pack.js";
+import { businessToday } from "../biz-date.js";
 
 export async function renderPickTab(root, ctx) {
   root.innerHTML = "";
@@ -20,7 +21,7 @@ export async function renderPickTab(root, ctx) {
   const dateInput = document.createElement("input");
   dateInput.type = "date";
   dateInput.className = "date-input";
-  dateInput.value = todayStr();
+  dateInput.value = businessToday(shift);
   head.appendChild(dateInput);
 
   const totalChip = document.createElement("span");

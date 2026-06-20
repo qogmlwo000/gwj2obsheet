@@ -29,6 +29,7 @@ export function createGrid(opts) {
     copyKeys = null,
     onCommit = async () => ({}),
     onDelete = async () => {},
+    onBulkDelete = null,          // (rows) => void — 선택 행 일괄 삭제 (Delete 키 + 선택바 버튼)
     onRowContextMenu = null,
     onLabelClick = null,
     onBulkPasteEnd = null,        // (pastedRows) => void — paste 완료 후 일괄 작업용
@@ -51,6 +52,8 @@ export function createGrid(opts) {
   let lastWin = { start: -1, end: -1 }; // 현재 렌더된 창 — 스크롤 시 변할 때만 재렌더
   const selected = new Set();
   let lastClickedIndex = -1;
+  // 바코드 타각용: scanAdvance 컬럼에서 커밋(blur) 후 다음 행 같은 칸으로 자동 이동
+  let scanAdvancePending = null; // 이동 대기 중인 행 인덱스(vi)
   // 체크박스 mousedown + drag 로 범위 선택
   let dragMode = null; // 'select' | 'deselect' | 'range' | null
   // 셀 위에서 드래그 시작 → 다른 행 진입 시 행 범위 선택으로 전환
@@ -63,10 +66,12 @@ export function createGrid(opts) {
   const selBar = document.createElement("div");
   selBar.className = "grid-selection-bar";
   selBar.style.display = "none";
+  // 기본 복사 = '쿠코드만' (주 버튼 + Ctrl+C). '쿠코드 | 성함' 은 선택형 보조 버튼.
   selBar.innerHTML = `
     <span class="sel-count">0 행 선택됨</span>
-    <button class="btn primary sel-copy-kn" title="쿠코드 + 성함 (Ctrl+C)">📋 쿠코드 | 성함</button>
-    <button class="btn ghost sel-copy-ku" title="쿠코드만">📋 쿠코드만</button>
+    <button class="btn primary sel-copy-ku" title="쿠코드만 복사 (Ctrl+C)">📋 쿠코드</button>
+    <button class="btn ghost sel-copy-kn" title="쿠코드 | 성함 복사">📋 쿠코드 | 성함</button>
+    ${onBulkDelete ? `<button class="btn ghost danger sel-delete" title="선택 행 삭제 (Delete)">🗑 삭제</button>` : ""}
     <button class="btn ghost sel-clear">해제</button>
   `;
   wrap.appendChild(selBar);
@@ -131,12 +136,14 @@ export function createGrid(opts) {
   wrap.appendChild(scroll);
   container.appendChild(wrap);
 
-  selBar.querySelector(".sel-copy-kn").addEventListener("click", () => copySelection(["kucode", "name"]));
   selBar.querySelector(".sel-copy-ku").addEventListener("click", () => copySelection(["kucode"]));
+  selBar.querySelector(".sel-copy-kn").addEventListener("click", () => copySelection(["kucode", "name"]));
   selBar.querySelector(".sel-clear").addEventListener("click", () => {
     selected.clear();
     render();
   });
+  const selDeleteBtn = selBar.querySelector(".sel-delete");
+  if (selDeleteBtn) selDeleteBtn.addEventListener("click", () => triggerBulkDelete());
 
   function onCopyKey(e) {
     if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "c") return;
@@ -145,9 +152,30 @@ export function createGrid(opts) {
     const sel = window.getSelection?.()?.toString();
     if (sel && sel.length > 0) return;
     e.preventDefault();
-    copySelection(["kucode", "name"]); // 기본: 쿠코드 | 성함
+    copySelection(["kucode"]); // 기본: 쿠코드만
   }
   document.addEventListener("keydown", onCopyKey);
+
+  // ── Delete 키 → 선택 행 일괄 삭제 (편집 입력 중에는 무시) ──
+  function triggerBulkDelete() {
+    if (!onBulkDelete) return;
+    if (selected.size === 0) return;
+    const visible = visibleRows();
+    const rowsToDelete = visible.filter((r) => selected.has(r));
+    if (!rowsToDelete.length) return;
+    onBulkDelete(rowsToDelete);
+  }
+  function onDeleteKey(e) {
+    if (e.key !== "Delete") return;
+    if (!onBulkDelete || selected.size === 0) return;
+    if (!wrap.isConnected) return; // 다른 탭으로 전환된 그리드는 무시
+    const ae = document.activeElement;
+    // 셀 입력칸에 포커스가 있으면(텍스트 편집 중) 일반 Delete 동작 유지
+    if (ae && ae.matches && ae.matches(".cell-input") && !ae.readOnly) return;
+    e.preventDefault();
+    triggerBulkDelete();
+  }
+  document.addEventListener("keydown", onDeleteKey);
 
   // 드래그 종료 — 마우스가 그리드 밖으로 나가도 끝나도록 document 에 등록
   function onMouseUp() {
@@ -506,7 +534,15 @@ export function createGrid(opts) {
     input.addEventListener("paste", (e) => onCellPaste(e, vi, ci));
     input.addEventListener("blur", async () => {
       const v = input.value.trim();
-      if ((row[col.key] ?? "") === v) return;
+      // scanAdvance 칸은 값이 그대로여도(같은 코드 재타각 등) 다음 행으로 내려가도록 처리
+      const advance = col.scanAdvance && scanAdvancePending === vi;
+      if ((row[col.key] ?? "") === v) {
+        if (advance) {
+          scanAdvancePending = null;
+          setTimeout(() => moveTo(vi + 1, ci, true), 0);
+        }
+        return;
+      }
       const prevSnapshot = { ...row };
       row[col.key] = v;
       const result = await onCommit(row, col.key, v, prevSnapshot);
@@ -517,6 +553,11 @@ export function createGrid(opts) {
         delete row.__errors[col.key];
       }
       render();
+      // 타각 연속 입력: 커밋·재렌더가 끝난 뒤 다음 행 같은 칸으로 포커스 이동
+      if (advance) {
+        scanAdvancePending = null;
+        setTimeout(() => moveTo(vi + 1, ci, true), 0);
+      }
     });
     return input;
   }
@@ -565,10 +606,24 @@ export function createGrid(opts) {
 
   function onCellKeydown(e, vi, ci) {
     const key = e.key;
+    const col = columns[ci];
     if (key === "Enter") {
       e.preventDefault();
-      moveTo(vi + 1, ci, true);
+      if (col && col.scanAdvance) {
+        // 타각/입력 후 Enter → 커밋(blur) 시킨 뒤, blur 핸들러가 다음 행으로 이동
+        scanAdvancePending = vi;
+        e.target.blur();
+      } else {
+        moveTo(vi + 1, ci, true);
+      }
     } else if (key === "Tab") {
+      // 스캐너가 Tab 접미를 보내는 경우에도 다음 행 같은 칸으로 내려가도록
+      if (col && col.scanAdvance && !e.shiftKey) {
+        e.preventDefault();
+        scanAdvancePending = vi;
+        e.target.blur();
+        return;
+      }
       const cols = textColIndices();
       const lastTextCol = cols[cols.length - 1];
       if (!e.shiftKey && ci === lastTextCol && vi === visibleRows().length - 1) {
@@ -589,9 +644,15 @@ export function createGrid(opts) {
     if (virtualize) ensureIndexVisible(vi); // 창 밖이면 스크롤 + 재렌더 (비가상은 전 행이 이미 DOM)
     const tr = tbody.querySelector(`tr[data-vindex="${vi}"]`);
     if (!tr) return;
-    const inputs = tr.querySelectorAll(".cell-input");
-    const idx = colInputIndex(ci);
-    if (inputs[idx]) inputs[idx].focus();
+    // 정확히 같은 컬럼(data-col)의 편집 가능한 입력칸을 찾는다.
+    // (읽기전용 컬럼도 .cell-input 이라 위치 기반 인덱싱은 어긋날 수 있어 data-col 로 직접 매칭)
+    let input = tr.querySelector(`.cell-input[data-col="${ci}"]:not(.readonly)`);
+    if (!input) {
+      const indices = textColIndices();
+      const targetCi = indices.includes(ci) ? ci : (indices.length ? indices[0] : ci);
+      input = tr.querySelector(`.cell-input[data-col="${targetCi}"]:not(.readonly)`);
+    }
+    if (input) input.focus();
   }
 
   function colInputIndex(ci) {
@@ -886,6 +947,7 @@ export function createGrid(opts) {
 
     destroy() {
       document.removeEventListener("keydown", onCopyKey);
+      document.removeEventListener("keydown", onDeleteKey);
       document.removeEventListener("mouseup", onMouseUp);
       scroll.removeEventListener("scroll", onGridScroll);
       if (scrollRaf) { cancelAnimationFrame(scrollRaf); scrollRaf = null; }

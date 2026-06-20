@@ -10,6 +10,7 @@ import { openMemberCard } from "../components/member-card.js";
 import { isAdmin } from "../auth.js";
 import { confirmDialog } from "../components/dialog.js";
 import { showToast } from "../toast.js";
+import { businessToday } from "../biz-date.js";
 import { captureElement, copyBlobToClipboard, downloadBlob } from "../capture.js";
 import {
   PACK_GROUPS_DEF, PICK_GROUPS_DEF, normalizePackGroup,
@@ -88,7 +89,7 @@ export async function renderShareTab(root, ctx, params) {
   const dateInput = document.createElement("input");
   dateInput.type = "date";
   dateInput.className = "date-input";
-  dateInput.value = todayStr();
+  dateInput.value = businessToday(shift);
   dateInput.title = "이 날짜의 집결지만 표시";
   head.appendChild(dateInput);
 

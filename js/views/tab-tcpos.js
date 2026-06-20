@@ -8,6 +8,7 @@ import { isAdmin, getSession } from "../auth.js";
 import { showToast } from "../toast.js";
 import { openContextMenu, closeContextMenu } from "../components/context-menu.js";
 import { captureElement, downloadBlob } from "../capture.js";
+import { businessToday } from "../biz-date.js";
 
 // 포지션 정의
 const MANAGER_SLOTS = [
@@ -61,7 +62,7 @@ export async function renderTCPosTab(root, ctx) {
   const dateInput = document.createElement("input");
   dateInput.type = "date";
   dateInput.className = "date-input";
-  dateInput.value = todayStr();
+  dateInput.value = businessToday(shift);
   head.appendChild(dateInput);
 
   const printBtn = document.createElement("button");
@@ -124,37 +125,25 @@ export async function renderTCPosTab(root, ctx) {
   function renderBoard() {
     board.innerHTML = "";
 
-    // ── 매니저 행
-    const mgrRow = document.createElement("section");
-    mgrRow.className = "tc-row tc-mgr-row";
-    const mgrLabel = document.createElement("div");
-    mgrLabel.className = "tc-row-title";
-    mgrLabel.innerHTML = `<span class="tc-row-icon">👑</span> Manager`;
-    mgrRow.appendChild(mgrLabel);
-    const mgrCards = document.createElement("div");
-    mgrCards.className = "tc-row-cards";
-    MANAGER_SLOTS.forEach((slot) => mgrCards.appendChild(makePositionCard(slot, "manager")));
-    mgrRow.appendChild(mgrCards);
-    board.appendChild(mgrRow);
+    // ── 매니저 섹션 (3칸)
+    board.appendChild(makeSection("👑", "Manager", "매니저", MANAGER_SLOTS, "manager", true));
 
-    // ── 두 컬럼: PACK / PICK
+    // ── PACK / PICK 2단
     const cols = document.createElement("div");
-    cols.className = "tc-cols";
-
-    cols.appendChild(makeSection("📦 PACK", "포장", PACK_POSITIONS, "pack"));
-    cols.appendChild(makeSection("🛒 PICK", "집품", PICK_POSITIONS, "pick"));
-
+    cols.className = "tc2-cols";
+    cols.appendChild(makeSection("📦", "PACK", "포장", PACK_POSITIONS, "pack"));
+    cols.appendChild(makeSection("🛒", "PICK", "집품", PICK_POSITIONS, "pick"));
     board.appendChild(cols);
 
     // ── 부가 업무 범례
     const legend = document.createElement("section");
-    legend.className = "tc-legend";
-    legend.innerHTML = `<div class="tc-legend-title">부가 업무</div>`;
+    legend.className = "tc2-legend";
+    legend.innerHTML = `<div class="tc2-legend-title">부가 업무</div>`;
     const list = document.createElement("div");
-    list.className = "tc-legend-list";
+    list.className = "tc2-legend-list";
     EXTRAS.forEach((ex) => {
       const chip = document.createElement("span");
-      chip.className = "tc-legend-chip";
+      chip.className = "tc2-legend-chip";
       chip.style.background = ex.color;
       chip.style.color = ex.fg;
       chip.textContent = ex.label;
@@ -164,12 +153,15 @@ export async function renderTCPosTab(root, ctx) {
     board.appendChild(legend);
   }
 
-  function makeSection(title, sub, positions, kind) {
+  function makeSection(icon, title, sub, positions, kind, mgr = false) {
     const sec = document.createElement("section");
-    sec.className = `tc-section tc-section-${kind}`;
-    sec.innerHTML = `<div class="tc-section-head"><span class="tc-section-title">${title}</span><span class="tc-section-sub">${sub}</span></div>`;
+    sec.className = `tc2-section tc2-section-${kind}`;
+    const head = document.createElement("div");
+    head.className = "tc2-section-head";
+    head.innerHTML = `<span class="tc2-section-icon">${icon}</span><span class="tc2-section-title">${escape(title)}</span><span class="tc2-section-sub">${escape(sub)}</span>`;
+    sec.appendChild(head);
     const grid = document.createElement("div");
-    grid.className = "tc-section-cards";
+    grid.className = "tc2-grid" + (mgr ? " tc2-grid-mgr" : "");
     positions.forEach((p) => grid.appendChild(makePositionCard(p, kind)));
     sec.appendChild(grid);
     return sec;
@@ -177,31 +169,31 @@ export async function renderTCPosTab(root, ctx) {
 
   function makePositionCard(slot, kind) {
     const card = document.createElement("article");
-    card.className = `tc-pos-card tc-pos-${kind}`;
+    card.className = `tc2-card tc2-${kind}`;
     const cur = data.positions[slot.id] || { kucode: "", extras: [] };
     const captain = allTCs.find((c) => c.kucode === cur.kucode);
     const extraIds = cur.extras || [];
 
-    // 부가 업무 색상 적용 (가장 첫 번째 extra)
+    // 부가 업무 색상 — 좌측 라인 바를 첫 번째 부가 업무 색으로
     const firstExtra = extraIds.length ? EXTRAS.find((x) => x.id === extraIds[0]) : null;
     if (firstExtra) {
-      card.style.background = firstExtra.color;
-      card.style.color = firstExtra.fg;
       card.classList.add("has-extra");
+      card.style.setProperty("--extra", firstExtra.color);
     }
 
+    const extrasHtml = extraIds.map((id) => {
+      const ex = EXTRAS.find((x) => x.id === id);
+      return ex ? `<span class="tc2-badge" style="background:${ex.color};color:${ex.fg}">${escape(ex.label)}</span>` : "";
+    }).join("");
+
     card.innerHTML = `
-      <div class="tc-pos-label">${escape(slot.label)}</div>
-      <div class="tc-pos-name">${
+      <div class="tc2-pos">${escape(slot.label)}</div>
+      <div class="tc2-person${captain ? "" : " empty"}">${
         captain
-          ? `<span class="tc-pos-nick">${escape(captain.nickname || "?")}</span><span class="tc-pos-sep">-</span><span class="tc-pos-real">${escape(captain.name || "?")}</span>`
-          : `<span class="tc-pos-empty">미정</span>`
+          ? `<span class="tc2-nick">${escape(captain.nickname || captain.name || "?")}</span>${captain.name ? `<span class="tc2-name">${escape(captain.name)}</span>` : ""}`
+          : `<span class="tc2-empty">미정</span>`
       }</div>
-      <div class="tc-pos-extras">${extraIds.map((id) => {
-        const ex = EXTRAS.find((x) => x.id === id);
-        if (!ex) return "";
-        return `<span class="tc-extra-chip" style="background:${ex.color};color:${ex.fg}">${escape(ex.label)}</span>`;
-      }).join("")}</div>
+      ${extrasHtml ? `<div class="tc2-extras">${extrasHtml}</div>` : ""}
     `;
 
     if (admin) {

@@ -9,6 +9,7 @@ import { renderShareTab } from "./tab-share.js";
 import { renderTCPosTab } from "./tab-tcpos.js";
 import { renderHeadcountTab } from "./tab-headcount.js";
 import { renderRawTab } from "./tab-raw.js";
+import { renderOvertimeTab } from "./tab-overtime.js";
 import { openSettings } from "./settings.js";
 import { makeClock } from "../components/clock.js";
 import { confirmDialog } from "../components/dialog.js";
@@ -16,6 +17,7 @@ import { makePresenceChip, joinPresence, leavePresence } from "../components/pre
 import { setSnop, getYesterdaySnop, logAudit, subscribeSnop, getStorageMode, isFallbackActive } from "../db.js";
 import { isFirebaseConfigured } from "../firebase-config.js";
 import { showToast } from "../toast.js";
+import { businessToday } from "../biz-date.js";
 
 const TABS = [
   { id: "raw",       label: "RAW" },
@@ -25,6 +27,7 @@ const TABS = [
   { id: "pack",      label: "PACK" },
   { id: "pick",      label: "PICK" },
   { id: "tcpos",     label: "TC 포지션" },
+  { id: "overtime",  label: "연장 조사" },
   { id: "share",     label: "공유" },
 ];
 
@@ -88,7 +91,7 @@ export function renderShell(root, onLogout) {
 
   const snopInput = snopWrap.querySelector(".snop-input");
   const snopDiff = snopWrap.querySelector(".snop-diff");
-  const today = todayStr();
+  const today = businessToday(shift);
 
   // 전일 SNOP 은 1회만 조회해 캐시 (키 입력마다 Firestore 읽기 방지)
   let yesterdaySnop = null;
@@ -285,6 +288,7 @@ async function routeFromHash() {
   else if (tabId === "pack")       result = renderPackTab(bodyHost, ctx, params);
   else if (tabId === "pick")       result = renderPickTab(bodyHost, ctx, params);
   else if (tabId === "tcpos")      result = renderTCPosTab(bodyHost, ctx, params);
+  else if (tabId === "overtime")   result = renderOvertimeTab(bodyHost, ctx, params);
   else if (tabId === "share")      result = renderShareTab(bodyHost, ctx, params);
   else { renderPlaceholder(tabId); return; }
 
