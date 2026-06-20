@@ -2149,6 +2149,14 @@ body.tc-fullscreen .tc-board {
 .tab-page .tab-body { display: flex; flex-direction: column; }
 /* FLOW 의 W/S 액션바도 같이 */
 .tab-page .tab-body > div > .grid-wrap { max-width: 1080px; margin: 0 auto; }
+/* RAW 탭 — 제목바와 패널을 같은 폭으로 가운데 정렬 (좌측 쏠림 방지) */
+.tab-page .tab-body > .raw-bar,
+.tab-page .tab-body > .raw-panel {
+  max-width: 760px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
 
 /* TC 보드 가운데 정렬 */
 .tc-board {

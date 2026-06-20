@@ -17,7 +17,7 @@ export async function renderRawTab(root, ctx, params) {
   root.appendChild(page);
 
   const bar = document.createElement("div");
-  bar.className = "action-bar";
+  bar.className = "action-bar raw-bar";
   const h2 = document.createElement("h2");
   h2.textContent = "RAW (HTP 집계)";
   bar.appendChild(h2);
