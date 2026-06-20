@@ -1,10 +1,11 @@
 // 인원 현황 대시보드 — 독립 탭의 핵심 컴포넌트.
 // Plan / Actual 는 직접 입력 가능, Gap·Total·채용률·Perm% 는 자동 계산.
-// 자동 동기화 모드: TC 포지션 / PACK / PICK / FLOW>신규단기 에서 Actual 값을 끌어옴.
+// 자동 동기화 모드: PACK / PICK / FLOW(TEAM CAPTAIN·PS·신규단기) 에서 Actual 값을 끌어옴.
+//   ※ T/C 는 FLOW>TEAM CAPTAIN 입력 인원으로만 집계 (TC 포지션 보드는 반영 안 함).
 
 import {
   getHeadcount, setHeadcount, subscribeHeadcount,
-  listOps, listFlow, listMaster, getTCPosition,
+  listOps, listFlow, listMaster,
   subscribeOps, subscribeFlow, subscribeTCPosition,
 } from "../db.js";
 import { getSession } from "../auth.js";
@@ -371,30 +372,23 @@ function escape(s) {
 // 자동 동기화 — 다른 탭/마스터에서 Actual 카운트 계산
 // ──────────────────────────────────────────────────────────
 export async function computeActualFromSources(shift, date) {
-  const [pack, pick, newTemp, captainFlow, psFlow, tcpos, permMaster, psMaster, captainMaster] = await Promise.all([
+  const [pack, pick, newTemp, captainFlow, psFlow, permMaster, psMaster, captainMaster] = await Promise.all([
     listOps(shift, "pack", date),
     listOps(shift, "pick", date),
     listFlow(shift, "newTemp", date),
     listFlow(shift, "captain", date),         // ★ TEAM CAPTAIN 은 FLOW 로만 집계 → T/C
     listFlow(shift, "ps", date),              // ★ PS 는 FLOW 로만 집계 → Perm
-    getTCPosition(shift, date),
     listMaster(shift, "perm"),                // 계약직(Perm)
     listMaster(shift, "ps"),                  // PS 마스터 (ops 제외용)
     listMaster(shift, "captain"),             // 캡틴 마스터 (ops 제외용)
   ]);
 
-  // T/C Actual = FLOW>captain + TC 포지션에 배정된 고유 쿠코드 (Union, dedupe)
+  // T/C Actual = FLOW>TEAM CAPTAIN 에 입력된 고유 쿠코드만 (TC 포지션 보드는 반영 안 함)
   const tcKus = new Set();
   captainFlow.forEach((r) => {
     const ku = String(r?.kucode || "").trim();
     if (ku) tcKus.add(ku);
   });
-  if (tcpos?.positions) {
-    for (const slot of Object.values(tcpos.positions)) {
-      const ku = String(slot?.kucode || "").trim();
-      if (ku) tcKus.add(ku);
-    }
-  }
 
   // 마스터 집합 — 계약직(Perm)만 ops 로 집계, 캡틴/PS 는 ops 에서 제외(FLOW 로만 집계)
   const permSet    = new Set(permMaster.map((r) => String(r.kucode || r.id)));

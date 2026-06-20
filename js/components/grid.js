@@ -203,6 +203,7 @@ export function createGrid(opts) {
     if (selected.size === 0) return;
     if (!onBulkDelete && !canDelete) return; // 삭제 불가 그리드는 무시
     if (!wrap.isConnected) return; // 다른 탭으로 전환된 그리드는 무시
+    if (document.querySelector(".modal-backdrop")) return; // 모달(확인창 등) 열려 있으면 무시 — 중복 방지
     e.preventDefault();
     triggerBulkDelete();
   }
@@ -684,11 +685,6 @@ export function createGrid(opts) {
       input = tr.querySelector(`.cell-input[data-col="${targetCi}"]:not(.readonly)`);
     }
     if (input) input.focus();
-  }
-
-  function colInputIndex(ci) {
-    const indices = textColIndices();
-    return indices.indexOf(ci) >= 0 ? indices.indexOf(ci) : 0;
   }
 
   function textColIndices() {
