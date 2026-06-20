@@ -131,13 +131,19 @@ export function renderPackPickStrip(opts) {
 
   side.appendChild(makeSep());
 
-  // ── HTP 정렬 (RAW 집계 기준) ──
-  const htpSortBtn = document.createElement("button");
-  htpSortBtn.className = "btn ghost pp-side-btn";
-  htpSortBtn.textContent = kind === "pick" ? "📊 픽 HTP 높은순" : "📊 팩 HTP 높은순";
-  htpSortBtn.title = "RAW HTP 기준으로 각 카드 안 인원을 높은 순서로 정렬";
-  htpSortBtn.addEventListener("click", () => sortByHtp());
-  side.appendChild(htpSortBtn);
+  // ── HTP 정렬 (RAW 집계 기준) — 픽/팩 둘 다 어느 탭에서나 사용 가능 ──
+  const htpPickBtn = document.createElement("button");
+  htpPickBtn.className = "btn ghost pp-side-btn";
+  htpPickBtn.textContent = "📊 픽 HTP 높은순";
+  htpPickBtn.title = "픽 HTP 기준으로 각 카드 안 인원을 높은 순서로 정렬";
+  htpPickBtn.addEventListener("click", () => sortByHtp("pick"));
+  side.appendChild(htpPickBtn);
+  const htpPackBtn = document.createElement("button");
+  htpPackBtn.className = "btn ghost pp-side-btn";
+  htpPackBtn.textContent = "📊 팩 HTP 높은순";
+  htpPackBtn.title = "팩 HTP 기준으로 각 카드 안 인원을 높은 순서로 정렬";
+  htpPackBtn.addEventListener("click", () => sortByHtp("pack"));
+  side.appendChild(htpPackBtn);
   const htpRestoreBtn = document.createElement("button");
   htpRestoreBtn.className = "btn ghost pp-side-btn";
   htpRestoreBtn.textContent = "↩ 기본 순서";
@@ -191,11 +197,11 @@ export function renderPackPickStrip(opts) {
   let searchText = "";
   let htpTable = {}; // 쿠코드 → { pq, ph, kq, kh } (RAW 집계). HTP 정렬용.
 
-  // 한 사람의 이 공정(kind) HTP — pick: kq/kh, pack: pq/ph. 데이터 없으면 null.
-  function htpOf(kucode) {
+  // 한 사람의 HTP — metric "pick": kq/kh, "pack": pq/ph. 데이터 없으면 null.
+  function htpOf(kucode, metric) {
     const e = htpTable[String(kucode || "").trim()];
     if (!e) return null;
-    if (kind === "pick") return e.kh > 0 ? e.kq / e.kh : null;
+    if (metric === "pick") return e.kh > 0 ? e.kq / e.kh : null;
     return e.ph > 0 ? e.pq / e.ph : null;
   }
   // 연장 희망자 쿠코드 집합 — 같은 일자 연장 조사 탭과 연동. 성함 배경을 주황색으로(최우선) 표시.
@@ -779,8 +785,8 @@ export function renderPackPickStrip(opts) {
     onCountChange({ total });
   }
 
-  // ── HTP 높은순 정렬 — 각 카드 안 인원을 RAW HTP 기준 내림차순으로 ──
-  function sortByHtp() {
+  // ── HTP 높은순 정렬 — 각 카드 안 인원을 RAW HTP(metric: pick|pack) 기준 내림차순으로 ──
+  function sortByHtp(metric) {
     if (!htpTable || Object.keys(htpTable).length === 0) {
       showToast("HTP 데이터가 없습니다 — RAW 탭에서 업로드해주세요.", "error");
       return;
@@ -792,13 +798,13 @@ export function renderPackPickStrip(opts) {
         if (ea && eb) return 0;
         if (ea) return 1;   // 빈 행은 맨 뒤
         if (eb) return -1;
-        const ha = htpOf(a.kucode), hb = htpOf(b.kucode);
+        const ha = htpOf(a.kucode, metric), hb = htpOf(b.kucode, metric);
         const va = ha == null ? -1 : ha;  // HTP 없는 사람은 뒤로(빈 행 앞)
         const vb = hb == null ? -1 : hb;
         return vb - va;     // 높은 순
       });
     });
-    showToast(kind === "pick" ? "픽 HTP 높은순 정렬" : "팩 HTP 높은순 정렬", "success");
+    showToast(metric === "pick" ? "픽 HTP 높은순 정렬" : "팩 HTP 높은순 정렬", "success");
   }
 
   // 빈 행이 부족하면 끝에만 보충 — 기존 순서 절대 변경하지 않음
